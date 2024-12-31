@@ -1,0 +1,7 @@
+portablemc
+BeautifulSoup4
+requests
+TkinterWeb
+lxml
+Pillow
+psutil
