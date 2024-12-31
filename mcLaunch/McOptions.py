@@ -105,23 +105,24 @@ class ResolutionSelect(Frame):
         vcmd = (self.register(self.callback))
         w,h=initial_value.split("x")
         self.command=command
-        self.widthe=Entry(self, validate='all', validatecommand=(vcmd, '%P'))
-        self.widthe.insert(0,w)
+        self.widthstr=StringVar()
+        self.heightstr=StringVar()
+        self.widthstr.set(w)
+        self.heightstr.set(h)
+        self.widthe=Entry(self, validate='all', validatecommand=(vcmd, '%P'), textvariable=self.widthstr)
         self.widthe.grid(sticky="ew")
         self.xlabel=Label(self,text="x")
         self.xlabel.grid(row=0,column=1)
-        self.heighte=Entry(self, validate='all', validatecommand=(vcmd, '%P'))
-        self.heighte.insert(0,h)
+        self.heighte=Entry(self, validate='all', validatecommand=(vcmd, '%P'), textvariable=self.heightstr)
         self.heighte.grid(row=0,column=2,sticky="ew")
+        self.widthstr.trace("w", lambda _,__,___: self.command() if self.command is not None else None)
+        self.heightstr.trace("w", lambda _,__,___: self.command() if self.command is not None else None)
         self.columnconfigure(0,weight=1)
         self.columnconfigure(2,weight=1)
 
     def callback(self, P):
         if str.isdigit(P) or P == "":
-            if callable(self.command):
-                self.command()
             return True
-
         else:
             return False
 
