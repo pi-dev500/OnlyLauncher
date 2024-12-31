@@ -6,8 +6,9 @@ Created on Wed Nov 27 18:44:20 2024
 @author: pi-dev500
 """
 from tkinter import *
+from tkinter import ttk
 import os
-class SwitchButton(Label):
+class SwitchButton(ttk.Label):
     def __init__(self,*args,value=True,command=None,**kw):
         # basic custom slide Switch Button, made of a label and 2 images
         self.image_on=PhotoImage(file=os.path.join(os.path.dirname(__file__),"on.png")).subsample(6,6)
