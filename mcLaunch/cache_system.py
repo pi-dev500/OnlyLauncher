@@ -53,6 +53,7 @@ class cached_content:
             self.status_code=200
         except:
             self.status_code=404
+    @staticmethod
     def get(url):
         filename=hash(url)
         return cached_content(os.path.join(mc_directory,"launcher_cache",filename))
@@ -102,7 +103,7 @@ def get_forge_versions():
     response = cached_content.get(url)
     if response.status_code == 200:
         # Analyse le contenu HTML de la page avec BeautifulSoup
-        soup = BeautifulSoup(response.text, 'html.parser')
+        soup = BeautifulSoup(response.text, 'xml')
 
         # Recherche les balises <a> contenant les liens de téléchargement
         forges = soup.find_all('version')

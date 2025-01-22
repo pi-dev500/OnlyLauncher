@@ -6,19 +6,18 @@ assert platform.system() in ["Windows","Linux"], "Not supported on your system"
 from portablemc.standard import Version, DownloadProgressEvent, StreamRunner
 from portablemc.forge import ForgeVersion, _NeoForgeVersion
 from portablemc.fabric import FabricVersion
+from portablemc.optifine import OptifineVersion, get_compatible_versions as of_version_dict
 import json
 #import sys
 
 import os
 import uuid
 from pathlib import Path
-from tkinter import *
-from tkinter.ttk import Combobox
-from tkinter import ttk
+#from tkinter import *
+from tkinter.ttk import *
+from tkinter import ttk, Frame, Canvas, Tk, Button
 from tkinter import font
 
-import optifine
-from optifine import OptifineVersion
 from bs4 import BeautifulSoup
 # import custom widgets
 from switchs import SwitchButton
@@ -89,7 +88,7 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
         self.quilt_loaders=get_fabric_loaders("https://meta.quiltmc.org/v3/versions")
         self.forge_versions=get_forge_versions()
         self.neoforge_versions=get_neoforge_versions()
-        self.optifine_versions=optifine.get_compatible_versions()
+        self.optifine_versions=of_version_dict()
         self.version_selection_f=Frame(self) # la frame managée par grid qui contient le formulaire de création.
         #---A partir d'ici, première partie (selection de version)
         self.version_type_l=Label(self.version_selection_f,text="Type de version:")
@@ -164,22 +163,22 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
                     self.version_s.set("latest")
                 self.loader_s.grid(row=3,column=1,sticky="ew")
                 self.loader_l.grid(row=3,column=0,sticky="w")
-                self.loader_s.configure(values=["Recommandé"]+self.fabric_loaders)
-                self.loader_s.set("Recommendé")
+                self.loader_s.configure(values=["recommended"]+self.fabric_loaders)
+                self.loader_s.set("recommended")
             case "Quilt":
                 self.version_s.configure(values=[name for name,settings in self.official_version_list.items() if settings["type"]=="release" and name in self.quilt_support])
                 self.loader_s.grid(row=3,column=1,sticky="ew")
                 self.loader_l.grid(row=3,column=0,sticky="w")
-                self.loader_s.configure(values=["Recommandé"]+self.quilt_loaders)
-                self.loader_s.set("Recommendé")
+                self.loader_s.configure(values=["recommended"]+self.quilt_loaders)
+                self.loader_s.set("recommended")
             case "Forge":
                 self.version_s.configure(values=list(self.forge_versions.keys()))
                 self.version_s.set("latest")
                 self.version_s.bind("<<ComboboxSelected>>", self.on_forgeorof_version_selected)
                 self.loader_s.grid(row=3,column=1,sticky="ew")
                 self.loader_l.grid(row=3,column=0,sticky="w")
-                self.loader_s.configure(values=["Recommandé"]+self.forge_versions[list(self.forge_versions.keys())[0]])
-                self.loader_s.set("Recommendé")
+                self.loader_s.configure(values=["recommended"]+self.forge_versions[list(self.forge_versions.keys())[0]])
+                self.loader_s.set("recommended")
             case "NeoForge":
                 self.version_s.configure(values=self.neoforge_versions)
                 self.version_s.set("latest")
@@ -189,21 +188,21 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
                 self.version_s.bind("<<ComboboxSelected>>", self.on_forgeorof_version_selected)
                 self.loader_s.grid(row=3,column=1,sticky="ew")
                 self.loader_l.grid(row=3,column=0,sticky="w")
-                self.loader_s.configure(values=["Recommandé"]+self.optifine_versions[list(self.optifine_versions.keys())[0]])
-                self.loader_s.set("Recommendé")
+                self.loader_s.configure(values=["recommended"]+[v.edition for v in self.optifine_versions[list(self.optifine_versions.keys())[0]]])
+                self.loader_s.set("recommended")
     def on_forgeorof_version_selected(self,event):
         if self.version_type_s.get()=="Forge":
             version=self.version_s.get()
             if version=="latest":
                 version=list(self.forge_versions.keys())[0]
-            self.loader_s.configure(values=["Recommandé"]+self.forge_versions[version])
-            self.loader_s.set("Recommandé")
+            self.loader_s.configure(values=["recomended"]+self.forge_versions[version])
+            self.loader_s.set("recomended")
         elif self.version_type_s.get()=="Optifine":
             version=self.version_s.get()
             if version=="latest":
                 version=list(self.forge_versions.keys())[0]
-            self.loader_s.configure(values=self.optifine_versions[version])
-            self.loader_s.set("Recommendé")
+            self.loader_s.configure(values=["recomended"]+[v.edition for v in self.optifine_versions[version]])
+            self.loader_s.set("recomended")
     def quick_play_toggle(self,val=True):
         if val:
             self.quick_play_type_l.grid(row=5,column=0,sticky="w")
@@ -253,7 +252,8 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
                     case "Forge":
                         version_name="Forge "+(self.version_s.get() if not self.version_s.get()=="latest" else list(self.forge_versions.keys())[0])+" "+self.get_latest_loader()
                     case "Optifine":
-                        version_name="Optifine "+self.version_s.get() if not self.version_s.get()=="latest" else self.get_latest_loader()
+                        version_name="Optifine "+(self.version_s.get() if not self.version_s.get()=="latest" else self.getlatest("optifine"))
+                        #TODO
                     case "NeoForge":
                         version_name="NeoForge "+(self.version_s.get() if not self.version_s.get()=="latest" else self.neoforge_versions[0])
                     case "Snapshot":
@@ -286,7 +286,7 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
                 result["type"]=self.version_type_s.get().lower()
                 result["version"]=self.version_s.get() if not self.version_s.get()=="latest" else self.getlatest(result["type"])
                 result["loader"]=self.loader_s.get()
-                if result["loader"]=="Recommendé":
+                if result["loader"]=="recommended":
                     result["loader"]=self.get_latest_loader()
                 result["enable_demo"]=self.enable_demo_s.get()
                 result["enable_multiplayer"]=self.enable_multiplayer_s.get()
@@ -325,7 +325,7 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
             case "Optifine":
                 if mc_ver=="latest":
                     mc_ver=list(self.optifine_versions.keys())[0]
-                return self.optifine_versions[mc_ver][0]
+                return self.optifine_versions[mc_ver][0].edition
             case "Forge":
                 if mc_ver=="latest":
                     mc_ver=list(self.forge_versions.keys())[0]
@@ -466,23 +466,23 @@ class Myapp(Tk):
                         env=Version(self.profile["version"])
                     case "forge":
                         vname = self.profile["version"]
-                        if not self.profile["loader"] == "Recommandé":
+                        if not self.profile["loader"] == "recommended":
                             vname = vname + "-" + self.profile["loader"]
                         env=ForgeVersion(vname)
                     case "fabric":
                         args = [self.profile["version"]]
                         vname = self.profile["version"]
-                        if not self.profile["loader"] == "Recommandé":
+                        if not self.profile["loader"] == "recommended":
                             args = [vname, self.profile["loader"]]
                         env=FabricVersion.with_fabric(*args)
                     case "quilt":
                         args= [self.profile["version"]]
                         vname = self.profile["version"]
-                        if not self.profile["loader"] == "Recommandé":
+                        if not self.profile["loader"] == "recommended":
                             args= [vname,self.profile["loader"]]
                         env=FabricVersion.with_quilt(*args)
                     case "optifine":
-                        args={"version": self.profile["version"],"loader":self.profile["loader"]}
+                        args={"version":self.profile["version"] + ":" + self.profile["loader"]}
                         env=OptifineVersion(**args)
                     case "neoforge":
                         vname = self.profile["version"]
@@ -501,8 +501,8 @@ class Myapp(Tk):
                     else:
                         env.set_quick_play_singleplayer(level_name=self.profile["quick_play"]["name"])
                 env=env.install(watcher=self)
-                env.jvm_args += self.optstab.get_jvm_args()
-                env.run(runner=StreamRunner())
+            env.jvm_args += self.optstab.get_jvm_args()
+            env.run(runner=StreamRunner())
             self.deiconify()
     def show_current_tab(self,selection=None):
         
