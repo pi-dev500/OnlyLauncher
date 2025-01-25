@@ -40,7 +40,15 @@ class TaskProgressBar(Canvas):
         self.rectangle=self.create_rectangle(0,0,0,self.winfo_height(),fill="green")
 class ProfileShow(Frame):
     def __init__(self,parent,content,app=None):
-        super().__init__(parent,pady=10,padx=10)
+        buttonstylenormal={
+            "background":"#2E3030",
+            "activebackground":"#3E4040"
+        }
+        buttonstyleerror={
+            "background":"#AA0000",
+            "activebackground":"#BB0000"
+        }
+        super().__init__(parent,pady=10,padx=10,bg="#2E3030")
         iconname=content["type"]
         if iconname in ["alpha","beta"]:
             iconname="old"
@@ -51,9 +59,11 @@ class ProfileShow(Frame):
         self.name_label=Label(self,text=content["name"])
         self.version_label=Label(self,text=content["version"])
         self.type_label=Label(self,text=content["type"])
-        self.loader_label=Label(self,text=content["loader"])
-        self.edit_button=Button(self,image=self.editimage,command=lambda: app.edit_profile(content),relief="flat",padx=10)
-        self.delete_button=Button(self,image=self.deleteimage,command=lambda: app.delete_profile(content), relief="flat",padx=10)
+        if hasattr(content["loader"],"__len__") and len(content["loader"]) and content["type"].lower() in ("optifine","fabric","forge","neoforge","quilt"):
+            self.loader_label = Label(self, text=content["loader"])
+            self.loader_label.grid(row=1,column=3)
+        self.edit_button=Button(self,image=self.editimage,command=lambda: app.edit_profile(content),relief="flat",**buttonstylenormal)
+        self.delete_button=Button(self,image=self.deleteimage,command=lambda: app.delete_profile(content), relief="flat",**buttonstyleerror)
         self.icon.grid(row=0,column=0,sticky="w",rowspan=2)
         self.name_label.grid(row=0,column=1,sticky="w",columnspan=3)
         self.version_label.grid(row=1,column=2,sticky="nsew")
@@ -65,19 +75,11 @@ class ProfileShow(Frame):
         self.columnconfigure(1,weight=1)
         self.columnconfigure(2,weight=1)
         self.columnconfigure(3,weight=1)
-    def destroyt(self): # destruct the widget only if it's a profileshow
-        self.destroy()
-        self.icon.destroy()
-        self.name_label.destroy()
-        self.version_label.destroy()
-        self.type_label.destroy()
-        self.loader_label.destroy()
-        self.edit_button.destroy()
-        self.delete_button.destroy()
 
 
 class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
     def __init__(self,*args,command=None,**kw):
+        kw["bg"]="#2E3030"
         super().__init__(*args,**kw)
         self.state=None
         self.command=command
@@ -195,14 +197,14 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
             version=self.version_s.get()
             if version=="latest":
                 version=list(self.forge_versions.keys())[0]
-            self.loader_s.configure(values=["recomended"]+self.forge_versions[version])
-            self.loader_s.set("recomended")
+            self.loader_s.configure(values=["recommended"]+self.forge_versions[version])
+            self.loader_s.set("recommended")
         elif self.version_type_s.get()=="Optifine":
             version=self.version_s.get()
             if version=="latest":
                 version=list(self.forge_versions.keys())[0]
-            self.loader_s.configure(values=["recomended"]+[v.edition for v in self.optifine_versions[version]])
-            self.loader_s.set("recomended")
+            self.loader_s.configure(values=["recommended"]+[v.edition for v in self.optifine_versions[version]])
+            self.loader_s.set("recommended")
     def quick_play_toggle(self,val=True):
         if val:
             self.quick_play_type_l.grid(row=5,column=0,sticky="w")
@@ -580,8 +582,8 @@ class Myapp(Tk):
                                                "type"] == "release"]
         )
         for c in self.profiles_f.scrollable_frame.winfo_children():
-            if hasattr(c, 'destroyt') and callable(c.destroyt):
-                c.destroyt()
+            if isinstance(c, ProfileShow):
+                c.destroy()
         for p in self.launcher_conf["profiles"]:
             ProfileShow(self.profiles_f.scrollable_frame, p,self).pack(fill="x")
     def validate_profile(self,content):

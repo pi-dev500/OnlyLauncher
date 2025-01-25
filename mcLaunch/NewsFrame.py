@@ -6,7 +6,7 @@ import webbrowser
 import os
 import sys
 from threading import Thread
-DIRECTORY=os.path.dirname(os.path.realpath(sys.argv[0]))
+DIRECTORY=os.path.dirname(os.path.realpath(__file__))
 
 class TkMcNews(HtmlFrame):
     def __init__(self,parent):
