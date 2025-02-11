@@ -33,8 +33,7 @@ def refresh_cache():
         "https://meta.fabricmc.net/v2/versions",
         "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml",
         "https://meta.quiltmc.org/v3/versions",
-        "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
-        'https://optifine.net/downloads'
+        "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
     )
     os.makedirs(os.path.join(mc_directory,"launcher_cache"),exist_ok=True)
     commands = [mt.Thread(target=download, args=[addr]) for addr in adresses]

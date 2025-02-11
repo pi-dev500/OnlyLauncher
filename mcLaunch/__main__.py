@@ -3,10 +3,10 @@ requirements=["portablemc","BeautifulSoup4","requests","TkinterWeb","lxml"]
 
 import platform
 assert platform.system() in ["Windows","Linux"], "Not supported on your system"
-from portablemc.standard import Version, DownloadProgressEvent, StreamRunner
+from portablemc.standard import Version, DownloadProgressEvent, StreamRunner, VersionNotFoundError
 from portablemc.forge import ForgeVersion, _NeoForgeVersion
 from portablemc.fabric import FabricVersion
-from portablemc.optifine import OptifineVersion, get_compatible_versions as of_version_dict
+from portablemc.optifine import OptifineVersion, get_compatible_versions as of_version_dict, get_offline_versions as of_offline_dict
 import json
 #import sys
 
@@ -38,7 +38,7 @@ class TaskProgressBar(Canvas):
     def __init__(self,parent):
         super().__init__(parent)
         self.rectangle=self.create_rectangle(0,0,0,self.winfo_height(),fill="green")
-class ProfileShow(Frame):
+class ProfileShow(ttk.Frame):
     def __init__(self,parent,content,app=None):
         buttonstylenormal={
             "background":"#2E3030",
@@ -48,7 +48,7 @@ class ProfileShow(Frame):
             "background":"#AA0000",
             "activebackground":"#BB0000"
         }
-        super().__init__(parent,pady=10,padx=10,bg="#2E3030")
+        super().__init__(parent,padding=10)
         iconname=content["type"]
         if iconname in ["alpha","beta"]:
             iconname="old"
@@ -77,9 +77,8 @@ class ProfileShow(Frame):
         self.columnconfigure(3,weight=1)
 
 
-class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
+class ProfileEdit(ttk.Frame): # La frame pour créer et éditer des profiles
     def __init__(self,*args,command=None,**kw):
-        kw["bg"]="#2E3030"
         super().__init__(*args,**kw)
         self.state=None
         self.command=command
@@ -90,8 +89,11 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
         self.quilt_loaders=get_fabric_loaders("https://meta.quiltmc.org/v3/versions")
         self.forge_versions=get_forge_versions()
         self.neoforge_versions=get_neoforge_versions()
-        self.optifine_versions=of_version_dict()
-        self.version_selection_f=Frame(self) # la frame managée par grid qui contient le formulaire de création.
+        try:
+            self.optifine_versions=of_version_dict(Path(mc_directory))
+        except VersionNotFoundError:
+            self.optifine_versions=of_offline_dict(Path(mc_directory)/"versions")
+        self.version_selection_f=ttk.Frame(self) # la frame managée par grid qui contient le formulaire de création.
         #---A partir d'ici, première partie (selection de version)
         self.version_type_l=Label(self.version_selection_f,text="Type de version:")
         self.version_type_l.grid(row=1,sticky="w")
@@ -105,11 +107,13 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
         self.version_s.set("latest")
         self.version_s.grid(row=2,column=1,sticky="ew",pady=4)
         self.loader_l=Label(self.version_selection_f,text="Version du loader:")
-        self.recomendation_loader=Label(self.version_selection_f,text="Il vaut mieux garder la valeur recommandée pour la version du loader sur les versions\nnon-officielles, sauf pour résoudre des problèmes de compatibilité de mods.",justify="left")
-        self.recomendation_loader.grid(row=4,columnspan=2,sticky="w")
+        self.recommendation_loader=Label(self.version_selection_f,text="Il vaut mieux garder la valeur recommandée pour la version du loader sur les versions\nnon-officielles, sauf pour résoudre des problèmes de compatibilité de mods.",justify="left")
+        self.recommendation_loader.grid(row=4,columnspan=2,sticky="w")
         self.loader_s=Combobox(self.version_selection_f,state="readonly")
         self.nextbutton=Button(self.version_selection_f,background="green",text="Suivant →",borderwidth=4,activebackground="#00AA00",command=self.on_next)
         self.nextbutton.grid(row=30,column=1,sticky="e")
+        self.backbutton=ttk.Button(self.version_selection_f, style="launcher.ErrorButton", text="Annuler...", command=self.quit_edit)
+        self.backbutton.grid(row=30,column=0,sticky="w")
         #---A partir d'ici, arguments de fix de version
         self.disable_leg_proxy_fix_l=Label(self.version_selection_f,text="Désactiver FIX_LEGACY_PROXY")
         self.disable_leg_proxy_fix_c=Checkbutton(self.version_selection_f)
@@ -240,7 +244,7 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
                 self.version_s.grid_forget()
                 self.loader_l.grid_forget()
                 self.loader_s.grid_forget()
-                self.recomendation_loader.grid_forget()
+                self.recommendation_loader.grid_forget()
                 # afficher les options
                 self.profile_name_label.grid(row=0,column=0,sticky="w")
                 self.profile_name_entry.grid(row=0,column=1,sticky="ew")
@@ -254,7 +258,7 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
                     case "Forge":
                         version_name="Forge "+(self.version_s.get() if not self.version_s.get()=="latest" else list(self.forge_versions.keys())[0])+" "+self.get_latest_loader()
                     case "Optifine":
-                        version_name="Optifine "+(self.version_s.get() if not self.version_s.get()=="latest" else self.getlatest("optifine"))
+                        version_name="Optifine "+(self.version_s.get() if not self.version_s.get()=="latest" else self.getlatest("optifine"))+" "+self.get_latest_loader()
                         #TODO
                     case "NeoForge":
                         version_name="NeoForge "+(self.version_s.get() if not self.version_s.get()=="latest" else self.neoforge_versions[0])
@@ -299,7 +303,7 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
                 if self.save_profile(result):
                     self.destroy()
                 else:
-                    self.profile_name_label.configure(fg="red")
+                    self.profile_name_label.configure(foreground="red")
     def getlatest(self,type):
         match type:
             case "vanilla":
@@ -342,11 +346,22 @@ class ProfileEdit(Frame): # La frame pour créer et éditer des profiles
                 return self.quilt_loaders[0]
             case _:
                 return None
+    def get_loader(self):
+        match self.version_type_s.get():
+            case "Optifine" | "Forge" | "Quilt" | "NeoForge" | "Fabric":
+                return self.loader_s.get() if not self.loader_s.get() in ("latest","recommended") else self.get_latest_loader()
+            case _:
+                return ""
     def save_profile(self,result):
         if self.command is not None:
             return self.command(result)
         else:
             return False
+    def quit_edit(self):
+        if self.command is not None:
+            return self.command(quit)
+        else:
+            self.destroy()
 class Myapp(Tk):
     def __init__(self):
         self.profile=""
@@ -370,13 +385,13 @@ class Myapp(Tk):
         self.helv18 = font.Font(family='Helvetica', size=18, weight='bold')
         self.helv12 = font.Font(family='Helvetica', size=12, weight='bold')
         # Création d'un style personnalisé
-        style = ttk.Style()
-        style.theme_use('default')  # Utilisation d'un thème agréable avec les personnalisations
-        style.map('TCombobox', fieldbackground=[('readonly', '#2E3030')])
-        style.map('TCombobox', background=[('readonly', '#2E3030')])
-        style.map('TCombobox', selectbackground=[('readonly', '#2E3030')])
+        self.style = ttk.Style()
+        self.style.theme_use('default')  # Utilisation d'un thème agréable avec les personnalisations
+        self.style.map('TCombobox', fieldbackground=[('readonly', '#2E3030')])
+        self.style.map('TCombobox', background=[('readonly', '#2E3030')])
+        self.style.map('TCombobox', selectbackground=[('readonly', '#2E3030')])
         # Modification du style de la Combobox
-        style.configure(
+        self.style.configure(
             "TCombobox",
             relief="flat",             # Met le relief à plat
             borderwidth=0,             # Supprime les bordures
@@ -388,7 +403,7 @@ class Myapp(Tk):
             highlightbackground = "#1E2020",highlightcolor= "#1E2020",
             arrowcolor="#AAAAAA"
         )
-        style.configure(
+        self.style.configure(
             "TScrollbar",
             gripcount=0,             # Supprime les grips (si présents)
             relief="flat",           # Style plat
@@ -397,8 +412,21 @@ class Myapp(Tk):
             background="#c0c0c0",    # Couleur du curseur
             arrowcolor="#666666"     # Couleur des flèches
             )
-        style.configure('TLabel', background="#2e3030", foreground="white",highlightbackground = "#1E2020",highlightcolor= "#1E2020")
-        style.map('TScrollbar', background=[('active', '#a0a0a0')])
+        self.style.configure(
+            "TFrame",
+            background="#2E3030"
+        )
+        self.style.configure(
+            "launcher.ErrorButton",
+            background="red",
+            highlightbackground = "red",
+            highlightcolor= "red",
+            foreground="white"
+        )
+        self.style.map("launcher.ErrorButton", foreground=[('active', 'white')], background=[('active', '#FF0000')])
+        self.style.layout("launcher.ErrorButton",layoutspec=self.style.layout("TButton"))
+        self.style.configure('TLabel', background="#2e3030", foreground="white",highlightbackground = "#1E2020",highlightcolor= "#1E2020")
+        self.style.map('TScrollbar', background=[('active', '#a0a0a0')])
         # Vertical left frame containing the buttons
 
         self.tabsf=Frame(self, bg="#1E2020",width=400)
@@ -587,6 +615,11 @@ class Myapp(Tk):
         for p in self.launcher_conf["profiles"]:
             ProfileShow(self.profiles_f.scrollable_frame, p,self).pack(fill="x")
     def validate_profile(self,content):
+        if content==quit:
+            self.profile_e.destroy()
+            self.addprofile_b.pack()
+            self.update_profile_list()
+            return True
         list_names=[p["name"] for p in self.launcher_conf["profiles"]]
         if not content["name"] in list_names:
             self.launcher_conf["profiles"].append(content)
