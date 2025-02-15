@@ -4,7 +4,62 @@ import tkinter as tk
 from PIL import Image, ImageTk
 import os
 
+class framepgbar(ttk.Frame):
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent)
+        self.progressbar = CenteredProgressBar(self, *args, **kwargs)
+        self.progressbar.pack(fill="both",expand=True)
+    def set(self, value):
+        self.progressbar.set(value)
+    def set_maximum(self, maximum):
+        self.progressbar.set_maximum(maximum)
+class CenteredProgressBar(tk.Canvas):
+    def __init__(self, parent, width=300, height=20, textvariable=None, bg="white", progress_color="blue", fg="white",
+                 **kwargs):
+        super().__init__(parent, width=width, height=height, **kwargs)
+        self.configure(highlightthickness=0, bd=0)
 
+        # Configuration des dimensions
+        self._width = width
+        self._height = height
+        self._progress = 0
+        self._max = 100
+
+        # Gestion du texte variable
+        self._textvariable = textvariable or tk.StringVar()
+        self._textvariable.trace_add('write', self._update_text)
+
+        # Création des éléments graphiques
+        self._background = self.create_rectangle(0, 0, width, height, fill=bg, outline='')
+        self._progress_bar = self.create_rectangle(0, 0, 0, height, fill=progress_color, outline='')
+        self._text = self.create_text(width / 2, height / 2, text='', fill=fg)
+
+        # Lier le redimensionnement
+        self.bind('<Configure>', self._draw)
+
+    def _draw(self, event=None):
+        # Mise à jour des dimensions
+        self._width = event.width if event else self._width
+        self._height = event.height if event else self._height
+
+        # Redimensionnement des éléments
+        self.coords(self._background, 0, 0, self._width, self._height)
+        progress_width = (self._progress / self._max) * self._width
+        self.coords(self._progress_bar, 0, 0, progress_width, self._height)
+        self.coords(self._text, self._width / 2, self._height / 2)
+        self.itemconfig(self._text, text=self._textvariable.get())
+
+    def _update_text(self, *args):
+        self.itemconfig(self._text, text=self._textvariable.get())
+        self._draw()
+
+    def set(self, value):
+        self._progress = max(0, min(value, self._max))
+        self._draw()
+
+    def set_maximum(self, maximum):
+        self._max = maximum
+        self._draw()
 
 def geticon(icon_name, size=(64, 64)):
     """
@@ -53,6 +108,7 @@ class ScrollableFrame(ttk.Frame):
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind_all("<Button-4>", self._on_mousewheel)
         self.canvas.bind_all("<Button-5>", self._on_mousewheel)
+        self.canvas.bind_all("<KeyPress>", self._on_mousewheel)
         self.scrollable_frame.bind_all("<MouseWheel>", self._on_mousewheel)
         self.scrollable_frame.bind_all("<Button-4>", self._on_mousewheel)
         self.scrollable_frame.bind_all("<Button-5>", self._on_mousewheel)
@@ -70,14 +126,13 @@ class ScrollableFrame(ttk.Frame):
         """
         # Get the bounding box of the canvas
         bbox = self.canvas.bbox("all")
-
         # Check if there is more content to scroll
         if bbox[3] > self.winfo_height():
             # If there is more content to scroll, scroll the canvas
-            if event.num == 4 or event.delta > 0:
+            if (event.num == 4 or event.delta > 0) or event.keysym == "Up":
                 # Scroll up
                 self.canvas.yview_scroll(-1, "units")
-            elif event.num == 5 or event.delta < 0:
+            elif (event.num == 5 or event.delta < 0) or event.keysym == "Down":
                 # Scroll down
                 self.canvas.yview_scroll(1, "units")
         else:

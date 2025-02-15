@@ -3,19 +3,19 @@ requirements=["portablemc","BeautifulSoup4","requests","TkinterWeb","lxml"]
 
 import platform
 assert platform.system() in ["Windows","Linux"], "Not supported on your system"
-from portablemc.standard import Version, DownloadProgressEvent, StreamRunner, VersionNotFoundError
+from portablemc.standard import Version, DownloadProgressEvent, StreamRunner, VersionNotFoundError, DownloadStartEvent
 from portablemc.forge import ForgeVersion, _NeoForgeVersion
 from portablemc.fabric import FabricVersion
 from portablemc.optifine import OptifineVersion, get_compatible_versions as of_version_dict, get_offline_versions as of_offline_dict
 import json
 #import sys
-
+import threading
 import os
 import uuid
 from pathlib import Path
 #from tkinter import *
 from tkinter.ttk import *
-from tkinter import ttk, Frame, Canvas, Tk, Button
+from tkinter import ttk, Frame, Canvas, Tk, Button, Misc
 from tkinter import font
 
 from bs4 import BeautifulSoup
@@ -363,6 +363,8 @@ class ProfileEdit(ttk.Frame): # La frame pour créer et éditer des profiles
         else:
             self.destroy()
 class Myapp(Tk):
+    active_start_thread=None
+    progress=0
     def __init__(self):
         self.profile=""
         super().__init__()
@@ -379,6 +381,9 @@ class Myapp(Tk):
         else:
             self.launcher_conf["profiles"]=self.genprofiles(self.launcher_conf["profiles"])
         #self.config={}
+        self.progressmessage=tk.StringVar()
+        self.progressbar=CenteredProgressBar(self,textvariable=self.progressmessage,bg="#2E3030",fg="white",progress_color="green")
+        self.progressbar.set(0)
         self.geometry("950x600")
         self.minsize(950,600)
         self.title("Minecraft Launcher")
@@ -478,10 +483,24 @@ class Myapp(Tk):
         self.tabsf.configure(width=300)
         startupdelta=(time_ns()-tbegin)/1000000
         print(f"Startup took {startupdelta} milliseconds")
+        self.bind("<Configure>",self.on_resize)
 
-    def start_mc(self):
+    def on_resize(self, event):
+        if hasattr(event,"width"):
+            self.progressbar.configure(width=event.width,height=15)
+
+    def start_mc(self, in_thread=False):
+        if not in_thread:
+            self.active_start_thread=threading.Thread(target=self.start_mc, args=(True,))
+            self.progressbar.place(anchor="sw",x=0,rely=1,relwidth=1,height=25)
+            self.progressbar.set(0)
+            Misc.lift(self.progressbar)
+            self.progressbar.set_maximum(100)
+            self.progressmessage.set("Lancement du jeu...")
+            self.active_start_thread.start()
+            return
         if self.profile is not None:
-            self.withdraw()
+            #self.withdraw()
             if type(self.profile)==str:
 
                 env = Version(self.profile)
@@ -532,6 +551,8 @@ class Myapp(Tk):
                         env.set_quick_play_singleplayer(level_name=self.profile["quick_play"]["name"])
                 env=env.install(watcher=self)
             env.jvm_args += self.optstab.get_jvm_args()
+            self.withdraw()
+            self.progressbar.place_forget()
             env.run(runner=StreamRunner())
             self.deiconify()
     def show_current_tab(self,selection=None):
@@ -640,9 +661,18 @@ class Myapp(Tk):
     def edit_profile(self,content):
         pass
 
+    def update(self):
+        super().update()
+        self.progressbar.set(self.progress)
+
     def handle(self,event):
-        if type(event)==DownloadProgressEvent:
-            print(event.speed, event.size, event.count)
+        if type(event)==DownloadStartEvent:
+            self.progressbar.set_maximum(event.size)
+            self.progressbar.set(0)
+
+        elif type(event)==DownloadProgressEvent:
+            self.progressbar.set(event.size)
+            print(event.speed, event.size, event.count, event.done)
         else:
             print(event)
 
