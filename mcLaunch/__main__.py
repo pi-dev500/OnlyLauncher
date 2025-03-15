@@ -3,10 +3,12 @@ requirements=["portablemc","BeautifulSoup4","requests","TkinterWeb","lxml"]
 
 import platform
 assert platform.system() in ["Windows","Linux"], "Not supported on your system"
-from portablemc.standard import Version, DownloadProgressEvent, StreamRunner, VersionNotFoundError, DownloadStartEvent
+from portablemc.standard import Version, DownloadProgressEvent, StreamRunner, VersionNotFoundError, DownloadStartEvent, \
+    DownloadCompleteEvent
 from portablemc.forge import ForgeVersion, _NeoForgeVersion
 from portablemc.fabric import FabricVersion
-from portablemc.optifine import OptifineVersion, get_compatible_versions as of_version_dict, get_offline_versions as of_offline_dict
+from portablemc.optifine import OptifineVersion, get_compatible_versions as of_version_dict, \
+    get_offline_versions as of_offline_dict, OptifinePatchEvent, OptifineStartInstallEvent
 import json
 #import sys
 import threading
@@ -366,6 +368,9 @@ class Myapp(Tk):
     active_start_thread=None
     progress=0
     def __init__(self):
+        self.max_download_size = None
+        self.downloaded_size = 0
+        self.download_threads_speed = []
         self.profile=""
         super().__init__()
         self.v_list=get_version_list()
@@ -452,7 +457,7 @@ class Myapp(Tk):
         self.tabs_options.pack(fill="x",side="top")
 
         self.tabsf.configure(width=200)
-        self.startbutton=Button(self.tabsf,text="Lancer le jeu",command=self.start_mc,fg="black",bg="green",borderwidth=5,font=self.helv12,height=1,width=10,activebackground="#009900")
+        self.startbutton=Button(self.tabsf,text="Lancer le jeu",command=self.start_mc,fg="black",bg="green",borderwidth=5,font=self.helv12,height=2,width=18,activebackground="#009900")
         self.startbutton["state"]="disabled"
         # Selection du profile
         self.official_version_list=get_version_list()
@@ -668,13 +673,31 @@ class Myapp(Tk):
     def handle(self,event):
         if type(event)==DownloadStartEvent:
             self.progressbar.set_maximum(event.size)
+            self.max_download_size=event.size
+            self.downloaded_size = {}
+            self.download_threads_speed = [0]*event.threads_count
             self.progressbar.set(0)
 
         elif type(event)==DownloadProgressEvent:
-            self.progressbar.set(event.size)
-            print(event.speed, event.size, event.count, event.done)
+            if not event.entry in self.downloaded_size:
+                self.downloaded_size[event.entry]=0
+            self.downloaded_size[event.entry]=event.size
+            self.download_threads_speed[event.thread_id]=event.speed if event.done is not None else 0
+            self.progressbar.set(sum(self.downloaded_size.values()))
+
+            self.progressbar._textvariable.set(f"{sum(self.downloaded_size.values())/1048576:.2f}/{self.max_download_size/1048576:.0f} Mo Téléchargés à {sum(self.download_threads_speed)/1048576:.2f} Mo/s")
+            #print(event.speed, f"{sum(self.downloaded_size.values())/1048576:.2f}/{self.max_download_size/1048576:.2f} Mo Téléchargés", event.count, event.done, event.thread_id, self.downloaded_size)
+        elif type(event)==DownloadCompleteEvent:
+            self.progressbar.set(self.max_download_size)
+            self.progressbar._textvariable.set(f"Téléchargement terminé.")
+        elif type(event)==OptifineStartInstallEvent:
+            self.progressbar.set(0)
+            self.progressbar._textvariable.set(f"Installation de Optifine...")
+        elif type(event)==OptifinePatchEvent:
+            self.progressbar.set_maximum(event.total)
+            self.progressbar.set(event.done)
         else:
-            print(event)
+            self.progressbar._textvariable.set(f"Mise en place des fichiers nécessaires...")
 
     def save_options(self):
         with open(os.path.join(mc_directory,"mcLaunch_profiles.json"),"w") as cf:
