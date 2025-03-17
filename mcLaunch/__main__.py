@@ -457,7 +457,7 @@ class Myapp(Tk):
         self.tabs_options.pack(fill="x",side="top")
 
         self.tabsf.configure(width=200)
-        self.startbutton=Button(self.tabsf,text="Lancer le jeu",command=self.start_mc,fg="black",bg="green",borderwidth=5,font=self.helv12,height=2,width=18,activebackground="#009900")
+        self.startbutton=Button(self.tabsf,text="Lancer le jeu",command=self.start_mc,fg="black",bg="green",borderwidth=5,font=self.helv12,height=2,width=18,activebackground="#009900",highlightbackground = "#1E2020",highlightcolor= "#1E2020")
         self.startbutton["state"]="disabled"
         # Selection du profile
         self.official_version_list=get_version_list()

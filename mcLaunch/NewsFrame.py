@@ -15,7 +15,7 @@ def extract_youtube_video_id(url):
 
 def get_yt_image(yturl):
     id=extract_youtube_video_id(yturl)
-    return f"https://img.youtube.com/vi/{id}/0.jpg"
+    return f"https://img.youtube.com/vi/{id}/maxresdefault.jpg"
 
 
 def replace_youtube_iframes(html_content):
@@ -27,7 +27,7 @@ def replace_youtube_iframes(html_content):
         video_url = match.group(1)
         video_id = match.group(2)
         thumbnail_url = get_yt_image(video_url)
-        return f'<img src="{thumbnail_url}" alt="YouTube Video Thumbnail" style="width: 627px">' if thumbnail_url else match.group(0)
+        return f'<a href="{video_url}"><img src="{thumbnail_url}" alt="YouTube Video Thumbnail" style="width: 627px"></a>' if thumbnail_url else match.group(0)
 
     return pattern.sub(iframe_replacer, html_content)
 class TkMcNews(HtmlFrame):
