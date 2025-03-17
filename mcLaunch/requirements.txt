@@ -1,4 +1,4 @@
-portablemc
+git+https://github.com/pi-dev500/portablemc.git
 BeautifulSoup4
 requests
 TkinterWeb

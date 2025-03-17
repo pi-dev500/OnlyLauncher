@@ -6,12 +6,34 @@ import webbrowser
 import os
 import sys
 from threading import Thread
+import re
 DIRECTORY=os.path.dirname(os.path.realpath(__file__))
+def extract_youtube_video_id(url):
+    regex_pattern = r'(?:v=|be\/|embed\/)([\w-]{11})'
+    match = re.search(regex_pattern, url)
+    return match.group(1) if match else None
 
+def get_yt_image(yturl):
+    id=extract_youtube_video_id(yturl)
+    return f"https://img.youtube.com/vi/{id}/0.jpg"
+
+
+def replace_youtube_iframes(html_content):
+    """Replaces YouTube iframes with thumbnail images using regex."""
+    pattern = re.compile(r'<iframe[^>]+src=["\'](https?://(?:www\.)?youtube\.com/embed/([\w-]{11})[^"\']*)["\'][^>]*>',
+                         re.IGNORECASE)
+
+    def iframe_replacer(match):
+        video_url = match.group(1)
+        video_id = match.group(2)
+        thumbnail_url = get_yt_image(video_url)
+        return f'<img src="{thumbnail_url}" alt="YouTube Video Thumbnail" style="width: 627px">' if thumbnail_url else match.group(0)
+
+    return pattern.sub(iframe_replacer, html_content)
 class TkMcNews(HtmlFrame):
     def __init__(self,parent):
-        super().__init__(parent, horizontal_scrollbar=None,messages_enabled = False)
-        self.on_link_click(webbrowser.open)
+        super().__init__(parent, horizontal_scrollbar=None,messages_enabled = False, javascript_enabled=True)
+        self.configure(on_link_click=webbrowser.open)
         self.tl=Thread(target=self.load_news)
         self.after(0,self.tl.start)
         #self.load_news()
@@ -32,6 +54,9 @@ class TkMcNews(HtmlFrame):
             # Recomposer le HTML filtré avec le head personnalisé #{custom_head}
             self.filtered_html = f"<html>{custom_head}<body><div class=\"posts-blog-feed-module post-module et_pb_extra_module masonry et_pb_posts_blog_feed_masonry_0 paginated et_pb_extra_module\">"
             if posts_section:
+                posts_section = replace_youtube_iframes(str(posts_section))
+                with open("cache.html","w") as f:
+                    f.write(str(posts_section))
                 self.filtered_html += str(posts_section)
             self.filtered_html += "</div></body></html>"
             print("Actualités récupérées depuis minecraft.fr")
