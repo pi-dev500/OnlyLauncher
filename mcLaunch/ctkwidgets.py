@@ -1,4 +1,3 @@
-#import tkinter as tk
 import tkinter.ttk as ttk
 import tkinter as tk
 from PIL import Image, ImageTk
@@ -13,6 +12,7 @@ class framepgbar(ttk.Frame):
         self.progressbar.set(value)
     def set_maximum(self, maximum):
         self.progressbar.set_maximum(maximum)
+
 class CenteredProgressBar(tk.Canvas):
     def __init__(self, parent, width=300, height=20, textvariable=None, bg="white", progress_color="blue", fg="white",
                  **kwargs):
