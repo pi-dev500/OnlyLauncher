@@ -1,4 +1,4 @@
-requirements=["portablemc","BeautifulSoup4","requests","TkinterWeb","lxml"]
+requirements=["portablemc>4.5","BeautifulSoup4","requests","TkinterWeb","lxml"]
 
 
 import platform
@@ -471,6 +471,10 @@ class Myapp(Tk):
         # Contenu des onglets
         self.mcnews=TkMcNews(self)
         self.mcnews.pack(side="right",fill="both")
+        self.modsframe=Frame(self)
+        self.mod_search_entry=Entry(self.modsframe, width=20)
+        self.mod_search_entry.pack()
+
         self.profiles_f=ScrollableFrame(self)
         #self.newprofile_f=Frame(self.profiles_f.scrollable_frame)
         self.addprofile_b=Button(self.profiles_f.scrollable_frame,text="Nouveau profile...",fg="black",bg="green",borderwidth=10,font=self.helv18,height=2,width=25,activebackground="#009900",command=self.create_new_profile)
@@ -568,7 +572,7 @@ class Myapp(Tk):
             t["state"]="normal"
             t['font']=self.helv18
             t.configure(background="#1E2020",highlightbackground = "#1E2020",highlightcolor= "#1E2020", foreground="green",relief="flat",width=15,height=2,activebackground="#2E3030",activeforeground="green",borderwidth=0)
-        tab_contents=[self.mcnews,self.profiles_f,self.optstab]
+        tab_contents=[self.mcnews,self.profiles_f,self.optstab, self.modsframe]
         for tc in tab_contents:
             tc.pack_forget()
         match self.current_tab:
@@ -583,6 +587,7 @@ class Myapp(Tk):
             case "mods":
                 self.tabs_mods["state"]="disabled"
                 self.tabs_mods.configure(background="green", disabledforeground="white",relief="flat",width=15,height=2)
+                self.modsframe.pack(side="left", fill="both", expand=True)
             case "options":
                 self.tabs_options["state"]="disabled"
                 self.tabs_options.configure(background="green", disabledforeground="white",relief="flat",width=15,height=2)
