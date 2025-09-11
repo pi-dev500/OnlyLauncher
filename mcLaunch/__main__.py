@@ -4,7 +4,7 @@ requirements=["portablemc>4.5","BeautifulSoup4","requests","TkinterWeb","lxml"]
 import platform
 assert platform.system() in ["Windows","Linux"], "Not supported on your system"
 from portablemc.standard import Version, DownloadProgressEvent, StreamRunner, VersionNotFoundError, DownloadStartEvent, \
-    DownloadCompleteEvent
+    DownloadCompleteEvent, Context
 from portablemc.forge import ForgeVersion, _NeoForgeVersion
 from portablemc.fabric import FabricVersion
 from portablemc.optifine import OptifineVersion, get_compatible_versions as of_version_dict, \
@@ -122,6 +122,8 @@ class ProfileEdit(ttk.Frame): # La frame pour créer et éditer des profiles
         #---Options du jeu
         self.profile_name_label=Label(self.version_selection_f,text="Nom du profile:")
         self.profile_name_entry=Entry(self.version_selection_f)
+        self.isolated_l=Label(self.version_selection_f,text="Isoler le dossier de version (utile pour les modpacks notemment):")
+        self.isolated_c=SwitchButton(self.version_selection_f, value=False)
         self.enable_demo_l=Label(self.version_selection_f,text="Mode demo:")
         self.enable_demo_s=SwitchButton(self.version_selection_f,value=False)
         self.enable_multiplayer_l=Label(self.version_selection_f,text="Autoriser multijoueur:")
@@ -276,14 +278,16 @@ class ProfileEdit(ttk.Frame): # La frame pour créer et éditer des profiles
                         version_name="Troll "+(self.version_s.get() if not self.version_s.get()=="latest" else [v for v in self.official_version_list.keys() if self.official_version_list[v]["type"]=="release"][0])
 
                 self.profile_name_entry.insert(0,version_name+" "+loader_vers)
-                self.enable_demo_l.grid(row=1,column=0,sticky="w")
-                self.enable_demo_s.grid(row=1,column=1,sticky="e",pady=6)
-                self.enable_multiplayer_l.grid(row=2,column=0,sticky="w")
-                self.enable_multiplayer_s.grid(row=2,column=1,sticky="e",pady=6)
-                self.enable_chat_l.grid(row=3,column=0,sticky="w")
-                self.enable_chat_s.grid(row=3,column=1,sticky="e",pady=6)
-                self.enable_quick_play_l.grid(row=4,column=0,sticky="w")
-                self.enable_quick_play_s.grid(row=4,column=1,sticky="e",pady=6)
+                self.isolated_l.grid(row=1,column=0,sticky="w")
+                self.isolated_c.grid(row=1,column=1,sticky="e",pady=6)
+                self.enable_demo_l.grid(row=2,column=0,sticky="w")
+                self.enable_demo_s.grid(row=2,column=1,sticky="e",pady=6)
+                self.enable_multiplayer_l.grid(row=4,column=0,sticky="w")
+                self.enable_multiplayer_s.grid(row=4,column=1,sticky="e",pady=6)
+                self.enable_chat_l.grid(row=5,column=0,sticky="w")
+                self.enable_chat_s.grid(row=5,column=1,sticky="e",pady=6)
+                self.enable_quick_play_l.grid(row=6,column=0,sticky="w")
+                self.enable_quick_play_s.grid(row=6,column=1,sticky="e",pady=6)
                 self.nextbutton.configure(text="Sauvegarder")
                 self.state="save"
             case "save":
@@ -294,6 +298,7 @@ class ProfileEdit(ttk.Frame): # La frame pour créer et éditer des profiles
                 result["type"]=self.version_type_s.get().lower()
                 result["version"]=self.version_s.get() if not self.version_s.get()=="latest" else self.getlatest(result["type"])
                 result["loader"]=self.loader_s.get()
+                result["isolated"]=self.isolated_c.get()
                 if result["loader"]=="recommended":
                     result["loader"]=self.get_latest_loader()
                 result["enable_demo"]=self.enable_demo_s.get()
@@ -518,33 +523,36 @@ class Myapp(Tk):
                 #env.run()
 
             elif type(self.profile)==dict:
+                ctx = Context()
+                if "isolated" in self.profile.keys() and self.profile["isolated"] is True:
+                    ctx = Context(work_dir = Path(mc_directory) / "versions" / self.profile["name"]) # le dossier de version est créé automatiquement
                 match self.profile["type"]:
                     case "vanilla" | "snapshot" | "alpha" | "beta":
-
-                        env=Version(self.profile["version"])
+                        env=Version(self.profile["version"], context=ctx)
                     case "forge":
                         vname = self.profile["version"]
                         if not self.profile["loader"] == "recommended":
                             vname = vname + "-" + self.profile["loader"]
-                        env=ForgeVersion(vname)
+                        env=ForgeVersion(vname, context=ctx)
                     case "fabric":
                         args = [self.profile["version"]]
                         vname = self.profile["version"]
                         if not self.profile["loader"] == "recommended":
                             args = [vname, self.profile["loader"]]
-                        env=FabricVersion.with_fabric(*args)
+                        env=FabricVersion.with_fabric(*args, context=ctx)
                     case "quilt":
                         args= [self.profile["version"]]
                         vname = self.profile["version"]
                         if not self.profile["loader"] == "recommended":
                             args= [vname,self.profile["loader"]]
-                        env=FabricVersion.with_quilt(*args)
+                        env=FabricVersion.with_quilt(*args, context=ctx)
                     case "optifine":
                         args={"version":self.profile["version"] + ":" + self.profile["loader"]}
-                        env=OptifineVersion(**args)
+                        env=OptifineVersion(**args, context=ctx)
                     case "neoforge":
                         vname = self.profile["version"]
-                        env=_NeoForgeVersion(vname)
+                        env=_NeoForgeVersion(vname, context=ctx)
+                
                 env.auth_session=self.optstab.get_auth()
                 env.resolution=tuple([int(v) for v in self.optstab.get_resolution().split("x")])
                 if self.profile["enable_multiplayer"] is False:
