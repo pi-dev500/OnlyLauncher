@@ -40,12 +40,11 @@ def get_project_data(project_id):
     else:
         return f"Error: {response.status_code}"
     
-def get_available_project_versions(project_id, mc_versions=[], loaders=[], featured=True):
+def get_available_project_versions(project_id, mc_versions=[], loaders=[], featured=False):
     url = f"https://api.modrinth.com/v2/project/{project_id}/version"
     params = {
         "loaders": json.dumps(loaders),
-        "game_versions": json.dumps(mc_versions),
-        "featured": featured
+        "game_versions": json.dumps(mc_versions)
         }
     if len(mc_versions)==0:
         del params["game_versions"]
@@ -59,6 +58,10 @@ def get_available_project_versions(project_id, mc_versions=[], loaders=[], featu
         return f"Error: {response.status_code}"
     
 def get_project_dependencies(project_id_or_slug) -> dict | str:
+    """
+    Returns a list of dependencies for a given project.
+    output example:
+    """
     url = f"https://api.modrinth.com/v2/project/{project_id_or_slug}/dependencies"
     params={}
     response = requests.get(url, params=params) 
@@ -101,110 +104,90 @@ def get_versions_from_ids(version_ids=[])-> list | str:
 
 
 def html_from_hits(hits):
-    html = """
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Mods</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-                background-color: #1e1e1e;
-                color: #ffffff;
-                margin: 0;
-                padding: 20px;
-            }
-            .modrinth-style {
-                background-color: #2a2a2a;
-                padding: 15px;
-                margin-bottom: 10px;
-                display: flex;
-                align-items: center;
-            }
-            
-            .mod-icon {
-                width: 64px;
-                height: 64px;
-                margin-right: 15px;
-            }
-            .mod-content {
-                display: flex;
-                flex-direction: column;
-                width: 100%;
-            }
-            .install-button {
-                display: flex;
-                flex-direction: column;
-            }
-            .mod-header {
-                display: flex;
-                align-items: center;
-            }
-            .mod-title {
-                font-size: 24px;
-                margin: 5px 10px 5px 0;
-            }
-            .author {
-                font-size: 16px;
-                color: #aaaaaa;
-            }
-            .download-count, .description, .mc-versions {
-                font-size: 14px;
-                color: #aaaaaa;
-            }
-            .green-button {
-                display: inline-block;
-                padding: 10px 20px;
-                background-color: #30b6a2;
-                color: #ffffff;
-                text-decoration: none;
-                border-radius: 3px;
-                transition: background-color 0.3s ease;
-            }
-            .mod-link {
-                text-decoration: none;
-                color: #ffffff;
-            }
-        </style>
-    </head>
-    <body>
-    """
+    import html as _html
+
+    html = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Mods</title>
+<style>
+  body { font-family: Arial, sans-serif; background-color:#1e1e1e; color:#ffffff; margin:0; padding:20px; }
+  .modrinth-style { background-color:#2a2a2a; padding:10px; margin-bottom:12px; height: 160px; }
+  .mod-table { width:100%; border-collapse:collapse; }
+  .mod-table td { vertical-align:top; padding:8px; }
+  .mod-icon { display:block; width:140px; height:140px; }
+  .mod-link { display:block; text-decoration:none; color:#ffffff; height:100%; }
+  .mod-title { font-size:20px; margin:0 0 6px 0; }
+  .author, .download-count, .description, .mc-versions { font-size:13px; color:#aaaaaa; margin:3px 0; }
+  .green-button { display:inline-block; padding:8px 14px; background-color:#30b6a2; color:#ffffff; text-decoration:none; border:1px solid #1e7c6e; white-space:nowrap; }
+</style>
+</head>
+<body>
+"""
 
     for hit in hits:
-        html += '<div class="modrinth-style">'
-        html += f'<img src="{hit["icon_url"]}" class="mod-icon">'
-        html += '<div class="mod-content">'
-        html += f'<a class="mod-link" href="project-preview://{hit["project_id"]}">'
-        html += '<div class="mod-header">'
-        html += f'<h2 class="mod-title">{hit["title"]}</h2>'
-        html += f'<div class="author">Par {hit["author"]}</div>'
-        html += '</div>'  # Close mod-header div
-        html += f'<div class="download-count">{hit["downloads"]} Téléchargements</div>'
-        html += f'<div class="description">{hit["description"]}</div>'
-        html += f'<div class="mc-versions">Versions compatibles: {", ".join(hit["versions"])}</div>'
-        html += '</a></div>'  # Close mod-content div
-        html += f'<div class="install-button"><a class="green-button" href="modrinth-install://{hit["project_id"]}">Installer</a></div>'
-        html += '</div>'  # Close modrinth-style div
+        icon_url = _html.escape(hit.get("icon_url", "https://via.placeholder.com/64"))
+        title = _html.escape(hit.get("title", "Untitled"))
+        author = _html.escape(hit.get("author", "Unknown"))
+        downloads = _html.escape(str(hit.get("downloads", "")))
+        description = _html.escape(hit.get("description", ""))
+        versions = _html.escape(", ".join(hit.get("versions", [])))
+        project_id = _html.escape(hit.get("project_id", ""))
 
-    html += """
-    </body>
-    </html>
-    """
+        html += f'''
+<div class="modrinth-style">
+  <table class="mod-table">
+    <tr>
+      <td colspan="2" style="padding:0;">
+        <a class="mod-link" href="project-preview://{project_id}">
+          <table style="width:100%; border-collapse:collapse;">
+            <tr>
+              <td style="width:72px; padding:8px;">
+                <img src="{icon_url}" alt="icon" class="mod-icon">
+              </td>
+              <td style="padding:8px;">
+                <h2 class="mod-title">{title}</h2>
+                <div class="author">Par {author}</div>
+                <div class="download-count">{downloads} Téléchargements</div>
+                <div class="description">{description}</div>
+                <div class="mc-versions">Versions compatibles: {versions}</div>
+              </td>
+            </tr>
+          </table>
+        </a>
+      </td>
+      <td style="white-space:nowrap; padding:8px; text-align:right;">
+        <a class="green-button" href="modrinth-install://{project_id}">Installer</a>
+      </td>
+    </tr>
+  </table>
+</div>
+'''
+
+    html += "\n</body>\n</html>\n"
     return html
-        
+
     
-# Example usage
-search_terms = "JEI"
-limit = 100  # Number of results per page
-page = 1    # Page number
-facets = [["versions:1.20"],["project_type:mod"]]
-mods = search_modrinth_projects(search_terms, facets, limit=100, page=1)
-for mod in mods['hits']:
-    print(mod['title'], mod['description'])
-    
-with open("search_results.html", "w") as f:
-    f.write(html_from_hits(mods["hits"]))
-print(mods["total_hits"],"Résultats")
-print(mods['hits'][0])
+def list_needed_mods(project_id, mc_version="1.21.8", loader="fabric") -> list[tuple[str, str]]:
+    version = get_available_project_versions(project_id, mc_versions=[mc_version], loaders=[loader])
+    if len(version)==0:
+        raise Exception("No versions found for this project")
+    #print(version)
+    deps = version[0]["dependencies"] # assume first is latest
+    needed_mods = [(project_id, version[0]["id"])]
+    projs = deps
+    for proj in projs:
+        needed_mods.append((proj["project_id"], proj["version_id"]))
+    return needed_mods
+
+def download_mod(project_id, project_version="latest", mc_version="1.21.8", loader="fabric", output_dir="."):
+    if project_version=="latest":
+        versions = get_available_project_versions(project_id, mc_versions=[mc_version], loaders=[loader])
+        if len(versions)==0:
+            raise Exception("No versions found for this project")
+        project_version = versions[0]
+        #print(versions)
+    print(project_version)
+    version = get_version(project_id, project_version)
+    print(version)
