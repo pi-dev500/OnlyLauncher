@@ -162,3 +162,5 @@ cython_debug/
 mcLaunch/cache.html
 .idea/misc.xml
 /.idea
+cache.html
+search_results.html

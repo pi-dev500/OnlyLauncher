@@ -59,6 +59,8 @@ class TkMcNews(HtmlFrame):
                     f.write(str(posts_section))
                 self.filtered_html += str(posts_section)
             self.filtered_html += "</div></body></html>"
+            with open(os.path.join(DIRECTORY,"cache.html"), "w", encoding="utf-8") as c:
+                c.write(self.filtered_html)
             print("Actualités récupérées depuis minecraft.fr")
         except Exception as e:
             print(e)
@@ -74,4 +76,3 @@ if __name__=="__main__":
     nf=TkMcNews(root)
     nf.pack(fill="both", expand=True)
     root.mainloop()
-    

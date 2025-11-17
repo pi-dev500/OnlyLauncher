@@ -135,7 +135,6 @@ class ProfileEdit(ttk.Frame): # La frame pour créer et éditer des profiles
         self.quick_play_type_l=Label(self.version_selection_f,text="Type de Quick Play:")
         self.quick_play_type_s=Combobox(self.version_selection_f,values=["Multijoueur", "Solo"],state="readonly")
         self.quick_play_type_s.set("Solo")
-        self.quick_play_type_s.bind("<<ComboboxSelected>>",lambda e: self.quick_play_toggle())
         self.quick_play_mp_l=Label(self.version_selection_f,text="Adresse ipV4 ou dns du serveur:")
         self.quick_play_sp_l=Label(self.version_selection_f,text="Nom du monde:")
         self.quick_play_name_e=Entry(self.version_selection_f)
@@ -215,20 +214,19 @@ class ProfileEdit(ttk.Frame): # La frame pour créer et éditer des profiles
             self.loader_s.set("recommended")
     def quick_play_toggle(self,val=True):
         if val:
-            self.quick_play_type_l.grid(row=5,column=0,sticky="w")
-            self.quick_play_type_s.grid(row=5,column=1,sticky="we")
-            
-            self.quick_play_name_e.grid(row=6,column=1,sticky="ew")
+            self.quick_play_type_l.grid(row=7,column=0,sticky="w")
+            self.quick_play_type_s.grid(row=7,column=1,sticky="we")
+            self.quick_play_name_e.grid(row=8,column=1,sticky="ew")
             if self.quick_play_type_s.get()=="Solo":
-                self.quick_play_sp_l.grid(row=6,column=0,sticky="w")
+                self.quick_play_sp_l.grid(row=8,column=0,sticky="w")
                 self.quick_play_mp_l.grid_forget()
                 self.quick_play_mp_port_l.grid_forget()
                 self.quick_play_mp_port_e.grid_forget()
             else:
                 self.quick_play_sp_l.grid_forget()
-                self.quick_play_mp_l.grid(row=6,column=0,sticky="w")
-                self.quick_play_mp_port_l.grid(row=7,column=0,sticky="w")
-                self.quick_play_mp_port_e.grid(row=7,column=1,sticky="ew")
+                self.quick_play_mp_l.grid(row=8,column=0,sticky="w")
+                self.quick_play_mp_port_l.grid(row=9,column=0,sticky="w")
+                self.quick_play_mp_port_e.grid(row=9,column=1,sticky="ew")
         else:
             self.quick_play_mp_l.grid_forget()
             self.quick_play_mp_port_l.grid_forget()
@@ -288,6 +286,7 @@ class ProfileEdit(ttk.Frame): # La frame pour créer et éditer des profiles
                 self.enable_chat_s.grid(row=5,column=1,sticky="e",pady=6)
                 self.enable_quick_play_l.grid(row=6,column=0,sticky="w")
                 self.enable_quick_play_s.grid(row=6,column=1,sticky="e",pady=6)
+                self.quick_play_type_s.bind("<<ComboboxSelected>>",self.quick_play_toggle)
                 self.nextbutton.configure(text="Sauvegarder")
                 self.state="save"
             case "save":
