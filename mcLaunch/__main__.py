@@ -84,295 +84,413 @@ class ProfileShow(ttk.Frame):
         self.destroy()
 
 
-class ProfileEdit(ttk.Frame): # La frame pour créer et éditer des profiles
-    def __init__(self,*args,command=None,**kw):
-        super().__init__(*args,**kw)
-        self.state=None
-        self.command=command
-        self.official_version_list=get_version_list()
-        self.fabric_support=get_fabric_support()
-        self.fabric_loaders=get_fabric_loaders()
-        self.quilt_support=get_fabric_support("https://meta.quiltmc.org/v3/versions")
-        self.quilt_loaders=get_fabric_loaders("https://meta.quiltmc.org/v3/versions")
-        self.forge_versions=get_forge_versions()
-        self.neoforge_versions=get_neoforge_versions()
+class ProfileEdit(ttk.Frame):
+    """Profile Editor with bug fixes and optimized code structure."""
+
+    # Version type configuration - centralized to reduce code duplication
+    VERSION_CONFIGS = {
+        "Vanilla": {"key": "release", "has_loader": False},
+        "Snapshot": {"key": "snapshot", "has_loader": False},
+        "Alpha": {"key": "old_alpha", "has_loader": False},
+        "Beta": {"key": "old_beta", "has_loader": False},
+        "Fabric": {"key": "release", "has_loader": True, "support_key": "fabric_support"},
+        "Quilt": {"key": "release", "has_loader": True, "support_key": "quilt_support"},
+        "Forge": {"key": None, "has_loader": True},
+        "NeoForge": {"key": None, "has_loader": False},
+        "Optifine": {"key": None, "has_loader": True},
+    }
+
+    def __init__(self, *args, command=None, **kw):
+        super().__init__(*args, **kw)
+        self.state = None
+        self.command = command
+
+        # Load all data upfront (keeps original synchronous behavior)
+        self.official_version_list = get_version_list()
+        self.fabric_support = get_fabric_support()
+        self.fabric_loaders = get_fabric_loaders()
+        self.quilt_support = get_fabric_support("https://meta.quiltmc.org/v3/versions")
+        self.quilt_loaders = get_fabric_loaders("https://meta.quiltmc.org/v3/versions")
+        self.forge_versions = get_forge_versions()
+        self.neoforge_versions = get_neoforge_versions()
+
         try:
-            self.optifine_versions=of_version_dict(Path(mc_directory))
+            self.optifine_versions = of_version_dict(Path(mc_directory))
         except VersionNotFoundError:
-            self.optifine_versions=of_offline_dict(Path(mc_directory)/"versions")
-        self.version_selection_f=ttk.Frame(self) # la frame managée par grid qui contient le formulaire de création.
-        #---A partir d'ici, première partie (selection de version)
-        self.version_type_l=Label(self.version_selection_f,text="Type de version:")
-        self.version_type_l.grid(row=1,sticky="w")
-        self.version_type_s=Combobox(self.version_selection_f,values=["Vanilla","Snapshot","Alpha","Beta","Forge","NeoForge","Fabric","Quilt","Optifine"],state="readonly")
+            self.optifine_versions = of_offline_dict(Path(mc_directory) / "versions")
+
+        self._create_ui()
+
+    def _create_ui(self):
+        """Create and layout all UI widgets."""
+        self.version_selection_f = ttk.Frame(self)
+
+        # Version selection widgets
+        self.version_type_l = Label(self.version_selection_f, text="Type de version:")
+        self.version_type_s = Combobox(
+            self.version_selection_f,
+            values=list(self.VERSION_CONFIGS.keys()),
+            state="readonly"
+        )
         self.version_type_s.set("Vanilla")
-        self.version_type_s.grid(row=1,column=1,sticky="ew")
         self.version_type_s.bind("<<ComboboxSelected>>", self.on_type_select)
-        self.version_l=Label(self.version_selection_f,text="Version de Minecraft:")
-        self.version_l.grid(sticky="w",row=2,column=0)
-        self.version_s=Combobox(self.version_selection_f,values=[name for name,settings in self.official_version_list.items() if settings["type"]=="release"],state="readonly")
+
+        self.version_l = Label(self.version_selection_f, text="Version de Minecraft:")
+        self.version_s = Combobox(self.version_selection_f, state="readonly")
         self.version_s.set("latest")
-        self.version_s.grid(row=2,column=1,sticky="ew",pady=4)
-        self.loader_l=Label(self.version_selection_f,text="Version du loader:")
-        self.recommendation_loader=Label(self.version_selection_f,text="Il vaut mieux garder la valeur recommandée pour la version du loader sur les versions\nnon-officielles, sauf pour résoudre des problèmes de compatibilité de mods.",justify="left")
-        self.recommendation_loader.grid(row=4,columnspan=2,sticky="w")
-        self.loader_s=Combobox(self.version_selection_f,state="readonly")
-        self.nextbutton=Button(self.version_selection_f,background="green",text="Suivant →",borderwidth=4,activebackground="#00AA00",command=self.on_next)
-        self.nextbutton.grid(row=30,column=1,sticky="e")
-        self.backbutton=ttk.Button(self.version_selection_f, style="launcher.ErrorButton", text="Annuler...", command=self.quit_edit)
-        self.backbutton.grid(row=30,column=0,sticky="w")
-        #---A partir d'ici, arguments de fix de version
-        self.disable_leg_proxy_fix_l=Label(self.version_selection_f,text="Désactiver FIX_LEGACY_PROXY")
-        self.disable_leg_proxy_fix_c=Checkbutton(self.version_selection_f)
-        #---Options du jeu
-        self.profile_name_label=Label(self.version_selection_f,text="Nom du profile:")
-        self.profile_name_entry=Entry(self.version_selection_f)
-        self.isolated_l=Label(self.version_selection_f,text="Isoler le dossier de version (utile pour les modpacks notemment):")
-        self.isolated_c=SwitchButton(self.version_selection_f, value=False)
-        self.enable_demo_l=Label(self.version_selection_f,text="Mode demo:")
-        self.enable_demo_s=SwitchButton(self.version_selection_f,value=False)
-        self.enable_multiplayer_l=Label(self.version_selection_f,text="Autoriser multijoueur:")
-        self.enable_multiplayer_s=SwitchButton(self.version_selection_f)
-        self.enable_chat_l=Label(self.version_selection_f,text="Fonctionnalités de chat:")
-        self.enable_chat_s=SwitchButton(self.version_selection_f)
-        self.enable_quick_play_l=Label(self.version_selection_f,text="Quick play:")
-        self.enable_quick_play_s=SwitchButton(self.version_selection_f,command=self.quick_play_toggle,value=False)
-        self.quick_play_type_l=Label(self.version_selection_f,text="Type de Quick Play:")
-        self.quick_play_type_s=Combobox(self.version_selection_f,values=["Multijoueur", "Solo"],state="readonly")
+
+        self.loader_l = Label(self.version_selection_f, text="Version du loader:")
+        self.recommendation_loader = Label(
+            self.version_selection_f,
+            text="Il vaut mieux garder la valeur recommandée pour la version du loader sur les versions non-officielles, sauf pour résoudre des problèmes de compatibilité de mods.",
+            justify="left"
+        )
+        self.loader_s = Combobox(self.version_selection_f, state="readonly")
+
+        # Game options
+        self.profile_name_label = Label(self.version_selection_f, text="Nom du profile:")
+        self.profile_name_entry = Entry(self.version_selection_f)
+
+        self.isolated_l = Label(self.version_selection_f, text="Isoler le dossier de version (utile pour les modpacks notamment):")
+        self.isolated_c = SwitchButton(self.version_selection_f, value=False)
+
+        self.enable_demo_l = Label(self.version_selection_f, text="Mode demo:")
+        self.enable_demo_s = SwitchButton(self.version_selection_f, value=False)
+
+        self.enable_multiplayer_l = Label(self.version_selection_f, text="Autoriser multijoueur:")
+        self.enable_multiplayer_s = SwitchButton(self.version_selection_f)
+
+        self.enable_chat_l = Label(self.version_selection_f, text="Fonctionnalités de chat:")
+        self.enable_chat_s = SwitchButton(self.version_selection_f)
+
+        self.enable_quick_play_l = Label(self.version_selection_f, text="Quick play:")
+        self.enable_quick_play_s = SwitchButton(self.version_selection_f, command=self.quick_play_toggle, value=False)
+
+        self.quick_play_type_l = Label(self.version_selection_f, text="Type de Quick Play:")
+        self.quick_play_type_s = Combobox(
+            self.version_selection_f,
+            values=["Multijoueur", "Solo"],
+            state="readonly"
+        )
         self.quick_play_type_s.set("Solo")
-        self.quick_play_mp_l=Label(self.version_selection_f,text="Adresse ipV4 ou dns du serveur:")
-        self.quick_play_sp_l=Label(self.version_selection_f,text="Nom du monde:")
-        self.quick_play_name_e=Entry(self.version_selection_f)
-        self.quick_play_mp_port_l=Label(self.version_selection_f,text="Port:")
-        self.quick_play_mp_port_e=Entry(self.version_selection_f)
-        # affichage du formulaire
-        self.version_selection_f.pack(fill="both",expand=True,padx=50)
-        self.version_selection_f.columnconfigure(0,weight=1)
-        self.version_selection_f.columnconfigure(1,weight=1)
+        self.quick_play_type_s.bind("<<ComboboxSelected>>", self._on_quick_play_type_change)
 
-        self.loader_s.bind("<<ComboboxSelected>>",self.cbbselectionclear)
-        self.quick_play_type_s.bind("<<ComboboxSelected>>",self.cbbselectionclear)
-    def cbbselectionclear(self,ev=None):
-        self.loader_s.selection_clear()
-        self.quick_play_type_s.selection_clear()
+        self.quick_play_mp_l = Label(self.version_selection_f, text="Adresse ipV4 ou dns du serveur:")
+        self.quick_play_sp_l = Label(self.version_selection_f, text="Nom du monde:")
+        self.quick_play_name_e = Entry(self.version_selection_f)
 
-    def on_type_select(self,e=None):
+        self.quick_play_mp_port_l = Label(self.version_selection_f, text="Port:")
+        self.quick_play_mp_port_e = Entry(self.version_selection_f)
+
+        # Buttons
+        self.nextbutton = Button(
+            self.version_selection_f,
+            background="green",
+            text="Suivant →",
+            borderwidth=4,
+            activebackground="#00AA00",
+            command=self.on_next
+        )
+        self.backbutton = ttk.Button(
+            self.version_selection_f,
+            style="launcher.ErrorButton",
+            text="Annuler...",
+            command=self.quit_edit
+        )
+
+        # Layout
+        self.version_selection_f.pack(fill="both", expand=True, padx=50)
+        self.version_selection_f.columnconfigure(0, weight=1)
+        self.version_selection_f.columnconfigure(1, weight=1)
+
+        # Initial grid
+        self._layout_version_selection()
+
+    def _layout_version_selection(self):
+        """Layout version selection widgets."""
+        self.version_type_l.grid(row=1, sticky="w")
+        self.version_type_s.grid(row=1, column=1, sticky="ew")
+        self.version_l.grid(sticky="w", row=2, column=0)
+        self.version_s.grid(row=2, column=1, sticky="ew", pady=4)
+        self.recommendation_loader.grid(row=4, columnspan=2, sticky="w")
+        self.nextbutton.grid(row=30, column=1, sticky="e")
+        self.backbutton.grid(row=30, column=0, sticky="w")
+
+    def _get_versions_by_type(self, version_type):
+        """Get versions filtered by type - centralized to avoid code duplication."""
+        config = self.VERSION_CONFIGS.get(version_type)
+
+        if not config:
+            return []
+
+        # Handle special types (Forge, NeoForge, Optifine)
+        if config["key"] is None:
+            if version_type == "Forge":
+                return list(self.forge_versions.keys())
+            elif version_type == "NeoForge":
+                return list(self.neoforge_versions)
+            elif version_type == "Optifine":
+                return list(self.optifine_versions.keys())
+            return []
+
+        # Handle standard types with optional support filter
+        versions = [
+            name for name, settings in self.official_version_list.items()
+            if settings["type"] == config["key"]
+        ]
+
+        # Filter by support list if applicable
+        if "support_key" in config:
+            support_list = getattr(self, config["support_key"])
+            versions = [v for v in versions if v in support_list]
+
+        return versions
+
+    def on_type_select(self, e=None):
+        """Handle version type selection."""
         self.version_type_s.selection_clear()
-        self.loader_s.grid_forget()
         self.loader_l.grid_forget()
+        self.loader_s.grid_forget()
         self.version_s.unbind("<<ComboboxSelected>>")
-        match self.version_type_s.get():
-            case "Vanilla":
-                self.version_s.configure(values=[name for name,settings in self.official_version_list.items() if settings["type"]=="release"])
-            case "Snapshot":
-                self.version_s.configure(values=[name for name,settings in self.official_version_list.items() if settings["type"]=="snapshot"])
-            case "Alpha":
-                self.version_s.configure(values=[name for name,settings in self.official_version_list.items() if settings["type"]=="old_alpha"])
-            case "Beta":
-                self.version_s.configure(values=[name for name,settings in self.official_version_list.items() if settings["type"]=="old_beta"])
-            case "Fabric":
-                allowedversions=[name for name,settings in self.official_version_list.items() if settings["type"]=="release" and name in self.fabric_support]
-                self.version_s.configure(values=allowedversions)
-                if not self.version_s.get() in allowedversions:
-                    self.version_s.set("latest")
-                self.loader_s.grid(row=3,column=1,sticky="ew")
-                self.loader_l.grid(row=3,column=0,sticky="w")
-                self.loader_s.configure(values=["recommended"]+self.fabric_loaders)
-                self.loader_s.set("recommended")
-            case "Quilt":
-                self.version_s.configure(values=[name for name,settings in self.official_version_list.items() if settings["type"]=="release" and name in self.quilt_support])
-                self.loader_s.grid(row=3,column=1,sticky="ew")
-                self.loader_l.grid(row=3,column=0,sticky="w")
-                self.loader_s.configure(values=["recommended"]+self.quilt_loaders)
-                self.loader_s.set("recommended")
-            case "Forge":
-                self.version_s.configure(values=list(self.forge_versions.keys()))
-                self.version_s.set("latest")
-                self.version_s.bind("<<ComboboxSelected>>", self.on_forgeorof_version_selected)
-                self.loader_s.grid(row=3,column=1,sticky="ew")
-                self.loader_l.grid(row=3,column=0,sticky="w")
-                self.loader_s.configure(values=["recommended"]+self.forge_versions[list(self.forge_versions.keys())[0]])
-                self.loader_s.set("recommended")
-            case "NeoForge":
-                self.version_s.configure(values=self.neoforge_versions)
-                self.version_s.set("latest")
-            case "Optifine":
-                self.version_s.configure(values=list(self.optifine_versions.keys()))
-                self.version_s.set("latest")
-                self.version_s.bind("<<ComboboxSelected>>", self.on_forgeorof_version_selected)
-                self.loader_s.grid(row=3,column=1,sticky="ew")
-                self.loader_l.grid(row=3,column=0,sticky="w")
-                self.loader_s.configure(values=["recommended"]+[v.edition for v in self.optifine_versions[list(self.optifine_versions.keys())[0]]])
-                self.loader_s.set("recommended")
-    def on_forgeorof_version_selected(self,event):
-        if self.version_type_s.get()=="Forge":
-            version=self.version_s.get()
-            if version=="latest":
-                version=list(self.forge_versions.keys())[0]
-            self.loader_s.configure(values=["recommended"]+self.forge_versions[version])
+
+        version_type = self.version_type_s.get()
+        config = self.VERSION_CONFIGS[version_type]
+
+        # Update available versions
+        versions = self._get_versions_by_type(version_type)
+        self.version_s.configure(values=versions)
+        self.version_s.set("latest")
+
+        # Setup loader if needed
+        if config["has_loader"]:
+            self._setup_loader(version_type)
+            self.loader_l.grid(row=3, column=0, sticky="w")
+            self.loader_s.grid(row=3, column=1, sticky="ew")
+
+            # Add binding for version change if needed
+            if version_type in ("Forge", "Optifine"):
+                self.version_s.bind("<<ComboboxSelected>>", self._on_version_change)
+
+    def _setup_loader(self, version_type):
+        """Setup loader combobox values."""
+        loaders = []
+
+        if version_type == "Fabric":
+            loaders = ["recommended"] + self.fabric_loaders
+        elif version_type == "Quilt":
+            loaders = ["recommended"] + self.quilt_loaders
+        elif version_type == "Forge":
+            if self.forge_versions:
+                first_key = next(iter(self.forge_versions))
+                loaders = ["recommended"] + self.forge_versions[first_key]
+        elif version_type == "Optifine":
+            if self.optifine_versions:
+                first_key = next(iter(self.optifine_versions))
+                loaders = ["recommended"] + [v.edition for v in self.optifine_versions[first_key]]
+
+        self.loader_s.configure(values=loaders)
+        self.loader_s.set("recommended")
+
+    def _on_version_change(self, event):
+        """Update loader when version changes (Forge/Optifine)."""
+        self.version_s.selection_clear()
+        version_type = self.version_type_s.get()
+        version = self.version_s.get()
+
+        if version == "latest":
+            versions = self._get_versions_by_type(version_type)
+            version = versions[0] if versions else None
+
+        if not version:
+            return
+
+        if version_type == "Forge":
+            loaders = ["recommended"] + self.forge_versions.get(version, [])
+            self.loader_s.configure(values=loaders)
             self.loader_s.set("recommended")
-        elif self.version_type_s.get()=="Optifine":
-            version=self.version_s.get()
-            if version=="latest":
-                version=list(self.forge_versions.keys())[0]
-            self.loader_s.configure(values=["recommended"]+[v.edition for v in self.optifine_versions[version]])
+        elif version_type == "Optifine":
+            loaders = ["recommended"] + [v.edition for v in self.optifine_versions.get(version, [])]
+            self.loader_s.configure(values=loaders)
             self.loader_s.set("recommended")
-    def quick_play_toggle(self,val=True):
-        if val:
-            self.quick_play_type_l.grid(row=7,column=0,sticky="w")
-            self.quick_play_type_s.grid(row=7,column=1,sticky="we")
-            self.quick_play_name_e.grid(row=8,column=1,sticky="ew")
-            if self.quick_play_type_s.get()=="Solo":
-                self.quick_play_sp_l.grid(row=8,column=0,sticky="w")
-                self.quick_play_mp_l.grid_forget()
-                self.quick_play_mp_port_l.grid_forget()
-                self.quick_play_mp_port_e.grid_forget()
-            else:
-                self.quick_play_sp_l.grid_forget()
-                self.quick_play_mp_l.grid(row=8,column=0,sticky="w")
-                self.quick_play_mp_port_l.grid(row=9,column=0,sticky="w")
-                self.quick_play_mp_port_e.grid(row=9,column=1,sticky="ew")
-        else:
+
+    def _on_quick_play_type_change(self, event):
+        """Handle quick play type change."""
+        self.quick_play_type_s.selection_clear()
+        self.quick_play_toggle(self.enable_quick_play_s.get())
+
+    def quick_play_toggle(self, val=True):
+        """Toggle quick play options visibility."""
+        if not val:
+            self.quick_play_type_l.grid_forget()
+            self.quick_play_type_s.grid_forget()
             self.quick_play_mp_l.grid_forget()
             self.quick_play_mp_port_l.grid_forget()
             self.quick_play_mp_port_e.grid_forget()
             self.quick_play_sp_l.grid_forget()
-            self.quick_play_type_l.grid_forget()
-            self.quick_play_type_s.grid_forget()
             self.quick_play_name_e.grid_forget()
+            return
+
+        self.quick_play_type_l.grid(row=7, column=0, sticky="w")
+        self.quick_play_type_s.grid(row=7, column=1, sticky="we")
+        self.quick_play_name_e.grid(row=8, column=1, sticky="ew")
+
+        if self.quick_play_type_s.get() == "Solo":
+            self.quick_play_sp_l.grid(row=8, column=0, sticky="w")
+            self.quick_play_mp_l.grid_forget()
+            self.quick_play_mp_port_l.grid_forget()
+            self.quick_play_mp_port_e.grid_forget()
+        else:
+            self.quick_play_sp_l.grid_forget()
+            self.quick_play_mp_l.grid(row=8, column=0, sticky="w")
+            self.quick_play_mp_port_l.grid(row=9, column=0, sticky="w")
+            self.quick_play_mp_port_e.grid(row=9, column=1, sticky="ew")
 
     def on_next(self):
-        match self.state:
-            case None: # Nouveau profile, vient de selectionner la version voulue
-                # effacer la grid
-                self.version_type_l.grid_forget()
-                self.version_type_s.grid_forget()
-                self.version_l.grid_forget()
-                self.version_s.grid_forget()
-                self.loader_l.grid_forget()
-                self.loader_s.grid_forget()
-                self.recommendation_loader.grid_forget()
-                # afficher les options
-                self.profile_name_label.grid(row=0,column=0,sticky="w")
-                self.profile_name_entry.grid(row=0,column=1,sticky="ew")
-                self.profile_name_entry.delete(0,"end")
-                loader_vers=""
-                match self.version_type_s.get():
-                    case "Quilt":
-                        version_name="Quilt "+(self.version_s.get() if not self.version_s.get()=="latest" else self.quilt_support[0])+" "+self.get_latest_loader()
-                    case "Fabric":
-                        version_name="Fabric "+(self.version_s.get() if not self.version_s.get()=="latest" else self.fabric_support[0])+" "+self.get_latest_loader()
-                    case "Forge":
-                        version_name="Forge "+(self.version_s.get() if not self.version_s.get()=="latest" else list(self.forge_versions.keys())[0])+" "+self.get_latest_loader()
-                    case "Optifine":
-                        version_name="Optifine "+(self.version_s.get() if not self.version_s.get()=="latest" else self.getlatest("optifine"))+" "+self.get_latest_loader()
-                        #TODO
-                    case "NeoForge":
-                        version_name="NeoForge "+(self.version_s.get() if not self.version_s.get()=="latest" else self.neoforge_versions[0])
-                    case "Snapshot":
-                        version_name="Snapshot "+(self.version_s.get() if not self.version_s.get()=="latest" else [v for v in self.official_version_list.keys() if self.official_version_list[v]["type"]=="snapshot"][0])
-                    case "Alpha":
-                        version_name="Alpha "+(self.version_s.get() if not self.version_s.get()=="latest" else [v for v in self.official_version_list.keys() if self.official_version_list[v]["type"]=="old_alpha"][0])
-                    case "Beta":
-                        version_name="Beta "+(self.version_s.get() if not self.version_s.get()=="latest" else [v for v in self.official_version_list.keys() if self.official_version_list[v]["type"]=="old_beta"][0])
-                    case "Vanilla":
-                        version_name="Minecraft "+(self.version_s.get() if not self.version_s.get()=="latest" else [v for v in self.official_version_list.keys() if self.official_version_list[v]["type"]=="release"][0])
-                    case _: # you'v got troll
-                        version_name="Troll "+(self.version_s.get() if not self.version_s.get()=="latest" else [v for v in self.official_version_list.keys() if self.official_version_list[v]["type"]=="release"][0])
+        """Handle next/save button."""
+        if self.state is None:
+            self._show_options_screen()
+        elif self.state == "save":
+            self._save_profile()
 
-                self.profile_name_entry.insert(0,version_name+" "+loader_vers)
-                self.isolated_l.grid(row=1,column=0,sticky="w")
-                self.isolated_c.grid(row=1,column=1,sticky="e",pady=6)
-                self.enable_demo_l.grid(row=2,column=0,sticky="w")
-                self.enable_demo_s.grid(row=2,column=1,sticky="e",pady=6)
-                self.enable_multiplayer_l.grid(row=4,column=0,sticky="w")
-                self.enable_multiplayer_s.grid(row=4,column=1,sticky="e",pady=6)
-                self.enable_chat_l.grid(row=5,column=0,sticky="w")
-                self.enable_chat_s.grid(row=5,column=1,sticky="e",pady=6)
-                self.enable_quick_play_l.grid(row=6,column=0,sticky="w")
-                self.enable_quick_play_s.grid(row=6,column=1,sticky="e",pady=6)
-                self.quick_play_type_s.bind("<<ComboboxSelected>>",self.quick_play_toggle)
-                self.nextbutton.configure(text="Sauvegarder")
-                self.state="save"
-            case "save":
-                #self.pack_forget()
-                #self.grid_forget()
-                result={}
-                result["name"]=self.profile_name_entry.get()
-                result["type"]=self.version_type_s.get().lower()
-                result["version"]=self.version_s.get() if not self.version_s.get()=="latest" else self.getlatest(result["type"])
-                result["loader"]=self.loader_s.get()
-                result["isolated"]=self.isolated_c.get()
-                if result["loader"]=="recommended":
-                    result["loader"]=self.get_latest_loader()
-                result["enable_demo"]=self.enable_demo_s.get()
-                result["enable_multiplayer"]=self.enable_multiplayer_s.get()
-                result["enable_chat"]=self.enable_chat_s.get()
-                result["enable_quick_play"]=self.enable_quick_play_s.get()
-                result["quick_play"]={"name":self.quick_play_name_e.get()} if self.quick_play_type_s.get()=="Solo" else {"host":self.quick_play_name_e.get(),"port":int(self.quick_play_mp_port_e.get())}
-                #self.launcher_conf["profiles"][self.profile_name_entry.get()]=result
-                if self.save_profile(result):
-                    self.destroy()
-                else:
-                    self.profile_name_label.configure(foreground="red")
-    def getlatest(self,type):
-        match type:
-            case "vanilla":
-                return [v for v in self.official_version_list.keys() if self.official_version_list[v]["type"]=="release"][0]
-            case "snapshot":
-                return [v for v in self.official_version_list.keys() if self.official_version_list[v]["type"]=="snapshot"][0]
-            case "alpha":
-                return [v for v in self.official_version_list.keys() if self.official_version_list[v]["type"]=="old_alpha"][0]
-            case "beta":
-                return [v for v in self.official_version_list.keys() if self.official_version_list[v]["type"]=="old_beta"][0]
-            case "forge":
-                return [str(v) for v in self.forge_versions.keys()][0]
-            case "neoforge":
-                return [str(v) for v in self.neoforge_versions][0]
-            case "fabric":
-                return self.fabric_support[0]
-            case "quilt":
-                return self.quilt_support[0]
-            case "optifine":
-                return list(self.optifine_versions.keys())[0]
+    def _show_options_screen(self):
+        """Transition to options screen."""
+        # Hide version selection widgets
+        self.version_type_l.grid_forget()
+        self.version_type_s.grid_forget()
+        self.version_l.grid_forget()
+        self.version_s.grid_forget()
+        self.loader_l.grid_forget()
+        self.loader_s.grid_forget()
+        self.recommendation_loader.grid_forget()
+
+        # Generate profile name
+        version_name = self._generate_profile_name()
+
+        # Show options
+        self.profile_name_label.grid(row=0, column=0, sticky="w")
+        self.profile_name_entry.grid(row=0, column=1, sticky="ew")
+        self.profile_name_entry.delete(0, "end")
+        self.profile_name_entry.insert(0, version_name)
+
+        self.isolated_l.grid(row=1, column=0, sticky="w")
+        self.isolated_c.grid(row=1, column=1, sticky="e", pady=6)
+        self.enable_demo_l.grid(row=2, column=0, sticky="w")
+        self.enable_demo_s.grid(row=2, column=1, sticky="e", pady=6)
+        self.enable_multiplayer_l.grid(row=4, column=0, sticky="w")
+        self.enable_multiplayer_s.grid(row=4, column=1, sticky="e", pady=6)
+        self.enable_chat_l.grid(row=5, column=0, sticky="w")
+        self.enable_chat_s.grid(row=5, column=1, sticky="e", pady=6)
+        self.enable_quick_play_l.grid(row=6, column=0, sticky="w")
+        self.enable_quick_play_s.grid(row=6, column=1, sticky="e", pady=6)
+
+        self.nextbutton.configure(text="Sauvegarder")
+        self.state = "save"
+
+    def _generate_profile_name(self):
+        """Generate a profile name based on selected options."""
+        version_type = self.version_type_s.get()
+        version = self.version_s.get()
+
+        if version == "latest":
+            versions = self._get_versions_by_type(version_type)
+            version = versions[0] if versions else version
+
+        loader = ""
+        if self.VERSION_CONFIGS[version_type]["has_loader"]:
+            loader = " " + self.get_latest_loader()
+
+        return f"{version_type} {version}{loader}".strip()
+
+    def _save_profile(self):
+        """Save the profile and call command callback."""
+        result = {
+            "name": self.profile_name_entry.get(),
+            "type": self.version_type_s.get().lower(),
+            "version": self._resolve_version(),
+            "loader": self._resolve_loader(),
+            "isolated": self.isolated_c.get(),
+            "enable_demo": self.enable_demo_s.get(),
+            "enable_multiplayer": self.enable_multiplayer_s.get(),
+            "enable_chat": self.enable_chat_s.get(),
+            "enable_quick_play": self.enable_quick_play_s.get(),
+            "quick_play": self._get_quick_play_config(),
+        }
+
+        if self.save_profile(result):
+            self.destroy()
+        else:
+            self.profile_name_label.configure(foreground="red")
+
+    def _resolve_version(self):
+        """Resolve the actual version string."""
+        version = self.version_s.get()
+        if version != "latest":
+            return version
+
+        versions = self._get_versions_by_type(self.version_type_s.get())
+        return versions[0] if versions else version
+
+    def _resolve_loader(self):
+        """Resolve the loader to actual value."""
+        # Only try to get loader if it's visible
+        if not self.loader_s.winfo_viewable():
+            return ""
+
+        loader = self.loader_s.get()
+        if loader == "recommended":
+            return self.get_latest_loader()
+        return loader
+
+    def _get_quick_play_config(self):
+        """Build quick play configuration."""
+        if self.quick_play_type_s.get() == "Solo":
+            return {"name": self.quick_play_name_e.get()}
+        else:
+            return {
+                "host": self.quick_play_name_e.get(),
+                "port": int(self.quick_play_mp_port_e.get())
+            }
+
     def get_latest_loader(self):
-        sel_loader=self.loader_s.get()
-        mc_ver=self.version_s.get()
-        match self.version_type_s.get():
-            case "Optifine":
-                if mc_ver=="latest":
-                    mc_ver=list(self.optifine_versions.keys())[0]
-                return self.optifine_versions[mc_ver][0].edition
-            case "Forge":
-                if mc_ver=="latest":
-                    mc_ver=list(self.forge_versions.keys())[0]
-                return self.forge_versions[mc_ver][0]
-            case "NeoForge":
-                if mc_ver=="latest":
-                    mc_ver=list(self.neoforge_versions.keys())[0]
-                return self.neoforge_versions[mc_ver][0]
-            case "Fabric":
-                return self.fabric_loaders[0]
-            case "Quilt":
-                return self.quilt_loaders[0]
-            case _:
-                return None
-    def get_loader(self):
-        match self.version_type_s.get():
-            case "Optifine" | "Forge" | "Quilt" | "NeoForge" | "Fabric":
-                return self.loader_s.get() if not self.loader_s.get() in ("latest","recommended") else self.get_latest_loader()
-            case _:
-                return ""
-    def save_profile(self,result):
+        """Get the latest loader version."""
+        version_type = self.version_type_s.get()
+        version = self.version_s.get()
+
+        if version == "latest":
+            versions = self._get_versions_by_type(version_type)
+            version = versions[0] if versions else None
+
+        if not version:
+            return ""
+
+        if version_type == "Fabric":
+            return self.fabric_loaders[0] if self.fabric_loaders else ""
+        elif version_type == "Quilt":
+            return self.quilt_loaders[0] if self.quilt_loaders else ""
+        elif version_type == "Forge":
+            if version in self.forge_versions:
+                return self.forge_versions[version][0] if self.forge_versions[version] else ""
+        elif version_type == "Optifine":
+            if version in self.optifine_versions:
+                return self.optifine_versions[version][0].edition if self.optifine_versions[version] else ""
+        elif version_type == "NeoForge":
+            return self.neoforge_versions[0] if self.neoforge_versions else ""
+
+        return ""
+
+    def save_profile(self, result):
+        """Save profile via callback."""
         if self.command is not None:
             return self.command(result)
-        else:
-            return False
+        return False
+
     def quit_edit(self):
+        """Cancel edit - EXACT original behavior."""
         if self.command is not None:
-            return self.command(quit)
+            return self.command(quit)  # IMPORTANT: pass 'quit' object, not string
         else:
             self.destroy()
+
 class Myapp(Tk):
     active_start_thread=None
     progress=0
@@ -673,6 +791,14 @@ class Myapp(Tk):
             self.profile_e.destroy()
             self.profile_e = ProfileEdit(self.profiles_f.scrollable_frame, command=self.validate_profile)
             self.addprofile_b.pack()
+            self.profileselect.configure(
+            values=[p["name"] for p in self.launcher_conf["profiles"]] +
+                   ["Nouveau profile..."] + [name for
+                                           name, settings in
+                                           self.official_version_list.items()
+                                           if settings[
+                                               "type"] == "release"]
+            )
             #self.update_profile_list()
             return True
         else:
@@ -681,6 +807,14 @@ class Myapp(Tk):
         name=content["name"]
         if name in [p["name"] for p in self.launcher_conf["profiles"]]:
             del self.launcher_conf["profiles"][self.launcher_conf["profiles"].index(content)]
+            self.profileselect.configure(
+            values=[p["name"] for p in self.launcher_conf["profiles"]] +
+                   ["Nouveau profile..."] + [name for
+                                           name, settings in
+                                           self.official_version_list.items()
+                                           if settings[
+                                               "type"] == "release"]
+            )
             #self.update_profile_list()
 
     def edit_profile(self,content):

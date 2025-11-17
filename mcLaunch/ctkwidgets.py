@@ -79,39 +79,23 @@ def geticon(icon_name, size=(64, 64)):
     return result
 class ScrollableFrame(ttk.Frame):
     def __init__(self, parent, *args, **kwargs):
-        """
-        Initializes a ScrollableFrame widget with a canvas and a vertical scrollbar.
-
-        Parameters:
-        parent : widget
-        """
         super().__init__(parent, *args, **kwargs)
-
         self.canvas = tk.Canvas(self, bg="#2E3030", highlightthickness=0)
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview, style="TScrollbar")
         self.scrollable_frame = ttk.Frame(self.canvas)
-
-        # Create window for the scrollable frame
         self.scrollable_frame_window = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
-
-        # Pack widgets
         self.scrollbar.pack(side="right", fill="y")
         self.canvas.pack(side="left", fill="both", expand=True)
-
-        # Bind events to canvas only (not bind_all to avoid affecting other widgets)
         self.canvas.bind("<Enter>", self._bind_mousewheel)
         self.canvas.bind("<Leave>", self._unbind_mousewheel)
-
-        # Bind configure events
         self.scrollable_frame.bind("<Configure>", self._on_frame_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
-
-        # Track if mouse wheel is bound
+        self.canvas.config(yscrollincrement=1)
+        self.scroll_speed = 0
         self._mousewheel_bound = False
 
     def _bind_mousewheel(self, event=None):
-        """Bind mousewheel events when mouse enters the canvas area."""
         if not self._mousewheel_bound:
             self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
             self.canvas.bind_all("<Button-4>", self._on_mousewheel)
@@ -119,7 +103,6 @@ class ScrollableFrame(ttk.Frame):
             self._mousewheel_bound = True
 
     def _unbind_mousewheel(self, event=None):
-        """Unbind mousewheel events when mouse leaves the canvas area."""
         if self._mousewheel_bound:
             self.canvas.unbind_all("<MouseWheel>")
             self.canvas.unbind_all("<Button-4>")
@@ -127,80 +110,62 @@ class ScrollableFrame(ttk.Frame):
             self._mousewheel_bound = False
 
     def _on_mousewheel(self, event):
-        """
-        Handle mousewheel events to scroll the canvas.
-
-        Parameters:
-        event : tkinter event
-        """
-        # Get the bounding box of the canvas
         bbox = self.canvas.bbox("all")
-
-        # Check if bbox exists and if there is content to scroll
         if bbox is None:
             return
-
         canvas_height = self.canvas.winfo_height()
         content_height = bbox[3] - bbox[1]
-
-        # Only scroll if content is larger than canvas
         if content_height > canvas_height:
-            if event.num == 4 or event.delta > 0:
-                # Scroll up
-                self.canvas.yview_scroll(-1, "units")
-            elif event.num == 5 or event.delta < 0:
-                # Scroll down
-                self.canvas.yview_scroll(1, "units")
+            if event.num == 4:   # wheel up (Linux)
+                self._start_inertia(-10)  # negative means up
+            elif event.num == 5: # wheel down (Linux)
+                self._start_inertia(10)
+            elif event.delta != 0: # Windows/Mac
+                speed = -int(event.delta / 10)
+                self._start_inertia(speed)
+
+    def _start_inertia(self, initial_speed):
+        self.scroll_speed += initial_speed
+        # If inertia loop not running and speed significant, start it
+        if abs(self.scroll_speed) > 0 and not getattr(self, '_inertia_running', False):
+            self._inertia_running = True
+            self._run_inertia()
+
+    def _run_inertia(self):
+        if abs(self.scroll_speed) < 0.5:
+            self.scroll_speed = 0
+            self._inertia_running = False
+            return
+        movement = int(self.scroll_speed)
+        if movement != 0:
+            self.canvas.yview_scroll(movement, "units")
+        self.scroll_speed *= 0.85  # reduce speed
+        self.after(15, self._run_inertia)
+
 
     def _on_canvas_configure(self, event):
-        """
-        Handle canvas resize events to update the scrollable frame width.
-
-        Parameters:
-        event : tkinter event
-        """
-        # Make the internal frame's width match the canvas' width
         canvas_width = event.width
         self.canvas.itemconfig(self.scrollable_frame_window, width=canvas_width)
 
     def _on_frame_configure(self, event=None):
-        """
-        Handle the configure event of the internal frame.
-
-        Parameters:
-        event : tkinter event
-            The configure event of the internal frame.
-
-        Notes:
-        This method updates the scrollregion and manages scrollbar visibility.
-        """
-        # Update the scrollregion of the canvas
         bbox = self.canvas.bbox("all")
-
         if bbox is None:
             self.canvas.configure(scrollregion=(0, 0, 0, 0))
             self.scrollbar.pack_forget()
             return
-
         self.canvas.configure(scrollregion=bbox)
-
-        # Get canvas height
         canvas_height = self.canvas.winfo_height()
         content_height = bbox[3] - bbox[1]
-
-        # Show or hide scrollbar based on content height
         if content_height > canvas_height:
-            # Content is larger than canvas, show scrollbar
             self.scrollbar.pack(side="right", fill="y")
         else:
-            # Content fits in canvas, hide scrollbar and reset scroll position
             self.canvas.yview_moveto(0)
             self.scrollbar.pack_forget()
 
     def destroy(self):
-        """Clean up bindings before destroying the widget."""
         self._unbind_mousewheel()
         super().destroy()
+
 
             
 if __name__=="__main__":
