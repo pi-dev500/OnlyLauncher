@@ -42,6 +42,8 @@ class TaskProgressBar(Canvas):
         self.rectangle=self.create_rectangle(0,0,0,self.winfo_height(),fill="green")
 class ProfileShow(ttk.Frame):
     def __init__(self,parent,content,app=None):
+        self.main_app = app
+        self.main_content = content
         buttonstylenormal={
             "background":"#2E3030",
             "activebackground":"#3E4040"
@@ -65,7 +67,7 @@ class ProfileShow(ttk.Frame):
             self.loader_label = Label(self, text=content["loader"])
             self.loader_label.grid(row=1,column=3)
         self.edit_button=Button(self,image=self.editimage,command=lambda: app.edit_profile(content),relief="flat",**buttonstylenormal)
-        self.delete_button=Button(self,image=self.deleteimage,command=lambda: app.delete_profile(content), relief="flat",**buttonstyleerror)
+        self.delete_button=Button(self,image=self.deleteimage,command=self.deletep, relief="flat",**buttonstyleerror)
         self.icon.grid(row=0,column=0,sticky="w",rowspan=2)
         self.name_label.grid(row=0,column=1,sticky="w",columnspan=3)
         self.version_label.grid(row=1,column=2,sticky="nsew")
@@ -77,6 +79,9 @@ class ProfileShow(ttk.Frame):
         self.columnconfigure(1,weight=1)
         self.columnconfigure(2,weight=1)
         self.columnconfigure(3,weight=1)
+    def deletep(self):
+        self.main_app.delete_profile(self.main_content)
+        self.destroy()
 
 
 class ProfileEdit(ttk.Frame): # La frame pour créer et éditer des profiles
@@ -481,12 +486,14 @@ class Myapp(Tk):
 
         self.profiles_f=ScrollableFrame(self)
         #self.newprofile_f=Frame(self.profiles_f.scrollable_frame)
-        self.addprofile_b=Button(self.profiles_f.scrollable_frame,text="Nouveau profile...",fg="black",bg="green",borderwidth=10,font=self.helv18,height=2,width=25,activebackground="#009900",command=self.create_new_profile)
-        self.addprofile_b.pack()
+        
         #self.newprofile_f.pack(fill="both",side="top")
         #self.profile_f_l=Frame(self.profiles_f)
         for p in self.launcher_conf["profiles"]:
             ProfileShow(self.profiles_f.scrollable_frame,p,self).pack(fill="x")
+        self.profile_e = ProfileEdit(self.profiles_f.scrollable_frame, command=self.validate_profile)
+        self.addprofile_b=Button(self.profiles_f.scrollable_frame,text="Nouveau profile...",fg="black",bg="green",borderwidth=10,font=self.helv18,height=2,width=25,activebackground="#009900",command=self.create_new_profile)
+        self.addprofile_b.pack()
         #self.profile_f_l.pack(fill="both",expand=True)
         #self.profile_e=ProfileEdit(self.newprofile_f,command=self.validate_profile)
         #self.profile_e.pack(fill="both")
@@ -627,9 +634,8 @@ class Myapp(Tk):
     def message(self,msgt,content):
         print(f"{msgt}: {content}")
     def create_new_profile(self):
-        self.profile_e = ProfileEdit(self.profiles_f.scrollable_frame, command=self.validate_profile)
         self.profile_e.pack(fill="both")
-        self.update_profile_list()
+        #self.update_profile_list()
         self.addprofile_b.pack_forget()
         self.profileselect.configure(
             values=[p["name"] for p in self.launcher_conf["profiles"]] + [name for
@@ -655,17 +661,19 @@ class Myapp(Tk):
     def validate_profile(self,content):
         if content==quit:
             self.profile_e.destroy()
+            self.profile_e = ProfileEdit(self.profiles_f.scrollable_frame, command=self.validate_profile)
             self.addprofile_b.pack()
-            self.update_profile_list()
+            #self.update_profile_list()
             return True
         list_names=[p["name"] for p in self.launcher_conf["profiles"]]
         if not content["name"] in list_names:
             self.launcher_conf["profiles"].append(content)
-
+            ProfileShow(self.profiles_f.scrollable_frame, content,self).pack(fill="x")
             print("New profile created: ",content)
             self.profile_e.destroy()
+            self.profile_e = ProfileEdit(self.profiles_f.scrollable_frame, command=self.validate_profile)
             self.addprofile_b.pack()
-            self.update_profile_list()
+            #self.update_profile_list()
             return True
         else:
             return False
@@ -673,7 +681,7 @@ class Myapp(Tk):
         name=content["name"]
         if name in [p["name"] for p in self.launcher_conf["profiles"]]:
             del self.launcher_conf["profiles"][self.launcher_conf["profiles"].index(content)]
-            self.update_profile_list()
+            #self.update_profile_list()
 
     def edit_profile(self,content):
         pass
