@@ -7,7 +7,7 @@ import os
 import sys
 from threading import Thread
 import re
-from testmodrinth import *
+from modrinthapi import *
 DIRECTORY=os.path.dirname(os.path.realpath(__file__))
 
 
@@ -21,7 +21,7 @@ class TkMcNews(HtmlFrame):
     def load(self,failmessage=True):
         self.mcversion = "1.20.1"
         self.mcloader = "fabric"
-        search_terms = "JEI"
+        search_terms = "Biomes"
         limit = 100  # Number of results per page
         page = 1    # Page number
         facets = [[f"versions:{self.mcversion}"],["project_type:mod"],[f"categories:{self.mcloader}"]]
@@ -33,7 +33,7 @@ class TkMcNews(HtmlFrame):
     def lclk(self,url):
         if url.startswith("modrinth-install://"):
             project_id = url.split("://")[1]
-            #print(project_id)
+            print(project_id)
             #print(get_project_data(project_id))
             print(get_project_dependencies(project_id))
             #print(download_mod(project_id))

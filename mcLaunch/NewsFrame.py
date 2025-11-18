@@ -104,7 +104,7 @@ class TkMcNews(HtmlFrame):
                 print(f"Scroll error: {e}")
 
         # Apply velocity decay (friction)
-        self.scroll_speed *= 0.8
+        self.scroll_speed *= 0.9
 
         # Schedule next frame (~15ms for smooth 60fps-ish feel)
         self.after(15, self._run_inertia)
