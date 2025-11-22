@@ -73,8 +73,11 @@ def get_version_list():
         with open(os.path.join(mc_directory, "version_manifest.json"), "w") as m:
             json.dump(list_versions, m)
     except:
-        with open(os.path.join(mc_directory, "version_manifest.json"), "r") as m:
-            list_versions = json.load(m)
+        try:
+            with open(os.path.join(mc_directory, "version_manifest.json"), "r") as m:
+                list_versions = json.load(m)
+        except:
+            list_versions = {"versions": []}
     versions = {}
     for i in list_versions["versions"]:
         versions[i["id"]] = {"type": i["type"], "url": i["url"]}
@@ -82,19 +85,23 @@ def get_version_list():
 
 
 def get_fabric_support(url="https://meta.fabricmc.net/v2/versions"):
-    response = cached_content.get(url)
-    if response.status_code == 200:
-        return [v["version"] for v in response.json()["game"]]
-    else:
-        return []
+    try:
+        response = cached_content.get(url)
+        if response.status_code == 200:
+            return [v["version"] for v in response.json()["game"]]
+    except:
+        pass
+    return []
 
 
 def get_fabric_loaders(url="https://meta.fabricmc.net/v2/versions"):
-    response = cached_content.get(url)
-    if response.status_code == 200:
-        return [v["version"] for v in response.json()["loader"]]
-    else:
-        return []
+    try:
+        response = cached_content.get(url)
+        if response.status_code == 200:
+            return [v["version"] for v in response.json()["loader"]]
+    except:
+        pass
+    return []
 
 
 def get_forge_versions():
