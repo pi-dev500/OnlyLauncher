@@ -40,6 +40,7 @@ class TkMcNews(HtmlFrame):
         # Smooth scrolling inertia attributes
         self.scroll_speed = 0
         self._inertia_running = False
+        self.todo_scroll = 0
 
         # Bind mouse wheel events for smooth scrolling
         self.bind("<Enter>", self._bind_mousewheel)
@@ -70,11 +71,11 @@ class TkMcNews(HtmlFrame):
         """Handle mousewheel events and start inertia scrolling."""
         # Determine scroll direction and magnitude
         if event.num == 4:  # Linux scroll up
-            self._start_inertia(-2)
+            self._start_inertia(-100)
         elif event.num == 5:  # Linux scroll down
-            self._start_inertia(2)
+            self._start_inertia(100)
         elif event.delta != 0:  # Windows/Mac
-            speed = -int(event.delta / 10)
+            speed = -int(event.delta * 10)
             self._start_inertia(speed)
 
     def _start_inertia(self, initial_speed):
@@ -89,21 +90,32 @@ class TkMcNews(HtmlFrame):
     def _run_inertia(self):
         """Run the inertia scroll loop with velocity decay."""
         # Stop if speed is near zero
-        if abs(self.scroll_speed) < 0.5:
+        self.html.config(yscrollincrement=1)
+        if abs(self.todo_scroll) > 1:
+            self.html.yview("scroll", self.todo_scroll, "units")
+            self.todo_scroll = 0
+        if abs(self.scroll_speed) < 0.001:
             self.scroll_speed = 0
             self._inertia_running = False
+            self.html.yview("scroll", self.todo_scroll, "units")
+            self.todo_scroll = 0
             return
 
         # Scroll by integer part of speed using tkhtml3's yview
-        movement = int(self.scroll_speed)
+        movement = int(self.scroll_speed / 2)
         if movement != 0:
             try:
+                if abs(movement) > 0.1:
                 # Use the html widget's yview method (tkhtml3 native)
-                self.html.yview("scroll", movement, "units")
+                    self.html.yview("scroll", movement, "units")
+                else:
+                    self.todo_scroll += movement
             except Exception as e:
                 print(f"Scroll error: {e}")
+        dire = 1 if self.scroll_speed > 0 else -1
 
         # Apply velocity decay (friction)
+        self.scroll_speed = min(abs(self.scroll_speed), 100) * dire
         self.scroll_speed *= 0.9
 
         # Schedule next frame (~15ms for smooth 60fps-ish feel)
