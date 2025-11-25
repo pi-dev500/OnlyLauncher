@@ -20,6 +20,7 @@ from PyQt6.QtCore import QSize
 
 # PortableMC imports (correct API)
 from portablemc.auth import MicrosoftAuthSession, AuthError
+import os
 
 
 class RedirectHandler(BaseHTTPRequestHandler):
@@ -88,39 +89,42 @@ class RedirectHandler(BaseHTTPRequestHandler):
         pass
 
 
-class GradientWidget(QWidget):
-    """Widget with modern Microsoft gradient background"""
-    
+class ThumbnailWidget(QWidget):
+    """
+    Widget with the official Minecraft login thumbnail as background
+    """
+    # Use relative path from the script location
+    IMAGE_PATH = os.path.join(os.path.dirname(__file__), "images/MSA_Stage5_Login.jpg")
+
     def __init__(self):
         super().__init__()
-        self.gradient_pixmap = None
-        self.create_gradient()
-    
-    def create_gradient(self):
-        """Create a modern Microsoft-like gradient background"""
-        pixmap = QPixmap(1920, 1080)
-        painter = QPainter(pixmap)
-        
-        # Create gradient similar to modern Microsoft login
-        gradient = QLinearGradient(0, 0, 1920, 1080)
-        
-        # Modern colors: blues, purples, greens
-        gradient.setColorAt(0.0, QColor(102, 126, 234))      # Blue
-        gradient.setColorAt(0.3, QColor(118, 75, 162))       # Purple
-        gradient.setColorAt(0.6, QColor(99, 179, 156))       # Green
-        gradient.setColorAt(1.0, QColor(66, 155, 245))       # Light Blue
-        
-        painter.fillRect(pixmap.rect(), gradient)
-        painter.end()
-        
-        self.gradient_pixmap = pixmap
-    
+        self.background_pixmap = None
+        self.load_background()
+
+    def load_background(self):
+        """Load the thumbnail image from local file"""
+        if os.path.isfile(self.IMAGE_PATH):
+            self.background_pixmap = QPixmap(self.IMAGE_PATH)
+        else:
+            print(f"Warning: Background image not found at {self.IMAGE_PATH}")
+            self.background_pixmap = None
+
     def paintEvent(self, event):
-        """Paint the gradient background"""
-        if self.gradient_pixmap:
-            painter = QPainter(self)
-            scaled = self.gradient_pixmap.scaled(self.size())
-            painter.drawPixmap(0, 0, scaled)
+        """Paint the thumbnail background"""
+        painter = QPainter(self)
+        if self.background_pixmap and not self.background_pixmap.isNull():
+            scaled = self.background_pixmap.scaled(
+                self.size(), 
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            # Center the image
+            x = (self.width() - scaled.width()) // 2
+            y = (self.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+        else:
+            # Fallback: Convert hex string to QColor
+            painter.fillRect(self.rect(), QColor("#444444"))
         super().paintEvent(event)
 
 
@@ -235,7 +239,7 @@ class MicrosoftLoginWindow(QMainWindow):
     
     def create_modern_login_form(self) -> QWidget:
         """Create modern Microsoft login form with gradient background"""
-        main_widget = GradientWidget()
+        main_widget = ThumbnailWidget()
         layout = QVBoxLayout(main_widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -248,7 +252,7 @@ class MicrosoftLoginWindow(QMainWindow):
         form_box.setStyleSheet("""
             QWidget {
                 background-color: #fff;
-                border-radius: 8px;
+                /*border-radius: 8px;*/
             }
         """)
         form_box.setMaximumWidth(400)
@@ -258,12 +262,12 @@ class MicrosoftLoginWindow(QMainWindow):
         form_layout.setSpacing(16)
         
         # Microsoft logo
-        logo = QLabel("microsoft")
+        logo = QLabel("Minecraft")
         logo_font = QFont()
         logo_font.setPointSize(16)
         logo_font.setBold(True)
         logo.setFont(logo_font)
-        logo.setStyleSheet("color: #00a4ef; margin-bottom: 8px;")
+        logo.setStyleSheet("color: #999; margin-bottom: 8px;")
         form_layout.addWidget(logo)
         
         # Title
@@ -566,7 +570,10 @@ class PortableMCLauncher:
                 print(f"✓ Cleared cached credentials")
             except Exception as e:
                 print(f"✗ Failed to clear credentials: {e}")
-
+def get_portblemc_auth():
+    PORTABLEMC_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
+    launcher = PortableMCLauncher(PORTABLEMC_APP_ID, cache_dir="./minecraft_auth")
+    return launcher.show_login_window()
 
 # Example usage
 if __name__ == "__main__":
