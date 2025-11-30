@@ -21,6 +21,7 @@ from PyQt6.QtCore import QSize
 # PortableMC imports (correct API)
 from portablemc.auth import MicrosoftAuthSession, AuthError
 import os
+import json
 
 
 class RedirectHandler(BaseHTTPRequestHandler):
@@ -106,7 +107,6 @@ class ThumbnailWidget(QWidget):
         if os.path.isfile(self.IMAGE_PATH):
             self.background_pixmap = QPixmap(self.IMAGE_PATH)
         else:
-            print(f"Warning: Background image not found at {self.IMAGE_PATH}")
             self.background_pixmap = None
 
     def paintEvent(self, event):
@@ -374,7 +374,7 @@ class MicrosoftLoginWindow(QMainWindow):
                     if "email" in data:
                         self.email_input.setText(data["email"])
             except Exception as e:
-                print(f"Could not load cached email: {e}")
+                pass
     
     def start_login(self):
         """Start the Microsoft OAuth login flow"""
@@ -407,7 +407,7 @@ class MicrosoftLoginWindow(QMainWindow):
                     server.handle_request()
                     server.server_close()
                 except Exception as e:
-                    print(f"Server error: {e}")
+                    pass #print(f"Server error: {e}")
             
             server_thread = threading.Thread(target=run_server, daemon=True)
             server_thread.start()
@@ -477,23 +477,9 @@ class MicrosoftLoginWindow(QMainWindow):
             
             auth_data = {
                 "type": "microsoft",
-                "email": self.email,
-                "client_id": self.client_id,
-                "app_id": self.app_id,
-                "profile_name": auth_session.profile.name,
-                "profile_uuid": str(auth_session.profile.uuid),
-                "access_token": auth_session.access_token,
-                "timestamp": str(datetime.datetime.now()),
             }
-            
-            try:
-                creds_file = self.cache_dir / "credentials.json"
-                with open(creds_file, "w") as f:
-                    json.dump(auth_data, f, indent=2)
-            except Exception as e:
-                self.show_result(False, f"Failed to save credentials: {str(e)}")
-                return
-            
+            for field in auth_session.fields:
+                auth_data[field] = getattr(auth_session, field)
             self.auth_data = auth_data
             details = f"Profile: {auth_data['profile_name']}\nUUID: {auth_data['profile_uuid']}\nEmail: {auth_data['email']}"
             self.show_result(True, details)
@@ -554,10 +540,10 @@ class PortableMCLauncher:
             try:
                 with open(creds_file, "r") as f:
                     data = json.load(f)
-                    print(f"✓ Loaded cached credentials for: {data.get('profile_name', 'Unknown')}")
+                    pass #print(f"✓ Loaded cached credentials for: {data.get('profile_name', 'Unknown')}")
                     return data
             except Exception as e:
-                print(f"✗ Failed to load cached credentials: {e}")
+                pass #print(f"✗ Failed to load cached credentials: {e}")
         
         return None
     
@@ -567,9 +553,10 @@ class PortableMCLauncher:
         if creds_file.exists():
             try:
                 creds_file.unlink()
-                print(f"✓ Cleared cached credentials")
+                #print(f"✓ Cleared cached credentials")
             except Exception as e:
-                print(f"✗ Failed to clear credentials: {e}")
+                pass
+                #print(f"✗ Failed to clear credentials: {e}")
 def get_portblemc_auth():
     PORTABLEMC_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
     launcher = PortableMCLauncher(PORTABLEMC_APP_ID, cache_dir="./minecraft_auth")
@@ -577,27 +564,4 @@ def get_portblemc_auth():
 
 # Example usage
 if __name__ == "__main__":
-    PORTABLEMC_APP_ID = "708e91b5-99f8-4a1d-80ec-e746cbb24771"
-    
-    launcher = PortableMCLauncher(PORTABLEMC_APP_ID, cache_dir="./minecraft_auth")
-    
-    def on_auth_complete(success: bool, auth_data: dict):
-        if success:
-            print(f"\n✓ Authentication successful!")
-            print(f"  Profile: {auth_data['profile_name']}")
-            print(f"  UUID: {auth_data['profile_uuid']}")
-            print(f"  Email: {auth_data['email']}")
-        else:
-            print(f"\n✗ Authentication failed!")
-    
-    cached = launcher.load_cached_credentials()
-    if cached:
-        print(f"  UUID: {cached['profile_uuid']}")
-        print(f"  Saved: {cached.get('timestamp', 'unknown')}")
-    
-    result = launcher.show_login_window(on_complete=on_auth_complete)
-    
-    if result:
-        print(f"\nAuth data returned: {result['profile_name']}")
-    else:
-        print("\nNo authentication data returned")
+    print(json.dumps(get_portblemc_auth()))

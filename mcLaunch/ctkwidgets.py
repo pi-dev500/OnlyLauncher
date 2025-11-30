@@ -71,6 +71,8 @@ def geticon(icon_name, size=(64, 64)):
     defaultpath=os.path.join(os.path.dirname(__file__),"images",icon_name+".png")
     if os.path.exists(defaultpath):
         result=ImageTk.PhotoImage(Image.open(defaultpath).resize(size))
+    elif os.path.exists(os.path.join(os.path.dirname(__file__),"images",icon_name+".jpg")):
+        result=ImageTk.PhotoImage(Image.open(os.path.join(os.path.dirname(__file__),"images",icon_name+".jpg")).resize(size))
     else:
         if os.path.exists(icon_name):
             result=ImageTk.PhotoImage(Image.open(icon_name).resize(size))

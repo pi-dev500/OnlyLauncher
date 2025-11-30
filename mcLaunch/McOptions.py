@@ -11,16 +11,27 @@ from tkinter import PhotoImage
 from PIL import ImageTk, Image
 from tkinter.ttk import Combobox
 from portablemc.auth import MicrosoftAuthSession, OfflineAuthSession
+#from portablemc_login import PortableMCLauncher as MSA
 import urllib.parse
 from ctkwidgets import *
 from uuid import uuid4
 import os
+import sys
 import psutil
+from threading import Thread
+import subprocess
+import json
 
 # Get the current memory usage
 mem = psutil.virtual_memory()
 total_memory = mem.total / (1024 ** 2)  # in MB
 selfdir=os.path.dirname(os.path.realpath(__file__))
+DIRECTORY = os.path.dirname(os.path.realpath(__file__))
+
+def get_portblemc_auth():
+    jsonauth = subprocess.check_output([sys.executable, os.path.join(DIRECTORY, "portablemc_login.py")])
+    return json.loads(jsonauth)
+    
 class AccountDisplay(Frame):
     def __init__(self,parent,account,selectcommand=lambda: None,deletecommand=lambda c: None,state="normal"):
         self.background = "green" if state == "selected" else "#2E3030"
@@ -30,10 +41,15 @@ class AccountDisplay(Frame):
         self.account=account
 
         self.type="offline" if "pseudo" in account.keys() else "microsoft"
-        self.type_logo_img=geticon(self.type,(32,32))
-        self.type_logo=Label(self,image=self.type_logo_img,bg=self.background)
+        if self.type == "offline":
+            self.type_logo_img=geticon("snapshot",(32,32))
+            self.type_logo=Label(self,image=self.type_logo_img,bg=self.background)
+            self.name=Label(self,text=account["pseudo"],bg=self.background)
+        else:
+            self.type_logo_img=geticon("minecrosoft",(32,32))
+            self.type_logo=Label(self,image=self.type_logo_img,bg=self.background)
+            self.name=Label(self,text=account["profile_name"],bg=self.background)
         self.type_logo.grid(row=0,column=0)
-        self.name=Label(self,text=account["pseudo"],bg=self.background)
         self.name.grid(row=0,column=1)
         self.delete_image=geticon("delete",(32,32))
         self.delete_button=Button(self,image=self.delete_image,command=self.deletecommand,relief="flat",bg=self.background,activebackground=self.activebackground,borderwidth=0,highlightcolor="#2E3030",highlightbackground="#2E3030")
@@ -230,7 +246,7 @@ class SettingsFrame(Frame):
         Label(self.tab_account_c, text="Comptes:").grid(row=0,column=0,sticky="w")
         self.add_account_b.grid(row=0,column=1,sticky="e")
         self.list_accounts_f=ScrollableFrame(self.tab_account_c)
-        self.list_accounts_f.grid(row=1,column=0,columnspan=2,sticky="nsew")
+        self.list_accounts_f.grid(row=1,column=0,columnspan=2, rowspan=2,sticky="nsew")
         self.tab_account_c.columnconfigure(0,weight=1)
         self.tab_account_c.columnconfigure(1,weight=1)
         self.tab_account_c.rowconfigure(1,weight=2)
@@ -256,25 +272,47 @@ class SettingsFrame(Frame):
                 self.saccounts[pseudo].pack(fill="x")
             else:
                 return
+        else:
+            def authenticate():
+                ret = get_portblemc_auth()
+                if ret != None:
+                    pseudo = ret["profile_name"]
+                    self.opts[accounts][pseudo] = ret
+                    self.saccounts[pseudo]=AccountDisplay(self.list_accounts_f.scrollable_frame,self.opts["accounts"][pseudo],selectcommand=lambda acc=pseudo: self.select_account(acc),deletecommand=lambda acc=pseudo: self.delete_account(acc))
+                    self.saccounts[pseudo].pack(fill="x")
+            root = self.winfo_toplevel()  # Get closest parent window (usually root)
+            root.withdraw()  # Hide the window
+            authenticate()
+            root.deiconify()  # Show the window
         self.close_new_account_frame()
     def close_new_account_frame(self):
         self.new_account_frame.pack_forget()
         self.tabsf.pack(fill="x")
-        self.tab_account_c.pack(fill="both")
+        self.tab_account_c.pack(fill="both", expand=True)
         #self.show_accounts_list()
     def get_auth(self):
         if not len(self.opts["accounts"])==0:
             if self.opts["sel_account"] in self.opts["accounts"].keys():
-                return OfflineAuthSession(self.opts["accounts"][self.opts["sel_account"]]["pseudo"],self.opts["accounts"][self.opts["sel_account"]]["uuid"])
+                if "type" in self.opts["accounts"][self.opts["sel_account"]].keys() and self.opts["accounts"][self.opts["sel_account"]]["type"] == "microsoft":
+                    p = self.opts["accounts"][self.opts["sel_account"]]
+                    auths = MicrosoftAuthSession.__new__() # auth back to minecraft
+                    for field in auths.fields:
+                        setattr(auths, field, p[field])
+                    auths.fixes()
+                    return auths
+                else:
+                    return OfflineAuthSession(self.opts["accounts"][self.opts["sel_account"]]["pseudo"],self.opts["accounts"][self.opts["sel_account"]]["uuid"])
         else:
             return OfflineAuthSession("Steve", str(uuid4()))
     def set_nacctype(self,event=None):
         if self.new_account_type.get() == "offline":
             self.pseudo_l.grid(row=2,column=0,sticky="w")
             self.offlineacc_pseudo.grid(row=2,column=1,sticky="we")
+            self.validate_b.configure(text="Valider")
         else:
             self.offlineacc_pseudo.grid_forget()
             self.pseudo_l.grid_forget()
+            self.validate_b.configure(text="Se connecter à Minecraft\npar compte Microsoft")
     def tab_select(self,tabname):
         """
     Permet de changer l'onglet actif entre "Jeu" et "Comptes".

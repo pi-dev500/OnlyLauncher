@@ -104,7 +104,6 @@ class ProfileEdit(ttk.Frame):
         super().__init__(*args, **kw)
         self.state = None
         self.command = command
-
         # Load all data upfront (keeps original synchronous behavior)
         self.official_version_list = get_version_list()
         self.fabric_support = get_fabric_support()
@@ -113,12 +112,7 @@ class ProfileEdit(ttk.Frame):
         self.quilt_loaders = get_fabric_loaders("https://meta.quiltmc.org/v3/versions")
         self.forge_versions = get_forge_versions()
         self.neoforge_versions = get_neoforge_versions()
-
-        try:
-            self.optifine_versions = of_version_dict(Path(mc_directory))
-        except VersionNotFoundError:
-            self.optifine_versions = of_offline_dict(Path(mc_directory) / "versions")
-
+        self.optifine_versions = get_optifine_versions()
         self._create_ui()
 
     def _create_ui(self):

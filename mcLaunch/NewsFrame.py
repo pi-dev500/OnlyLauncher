@@ -71,9 +71,9 @@ class TkMcNews(HtmlFrame):
         """Handle mousewheel events and start inertia scrolling."""
         # Determine scroll direction and magnitude
         if event.num == 4:  # Linux scroll up
-            self._start_inertia(-100)
+            self._start_inertia(-20)
         elif event.num == 5:  # Linux scroll down
-            self._start_inertia(100)
+            self._start_inertia(20)
         elif event.delta != 0:  # Windows/Mac
             speed = -int(event.delta * 10)
             self._start_inertia(speed)
