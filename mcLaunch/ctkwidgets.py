@@ -98,6 +98,7 @@ class ScrollableFrame(ttk.Frame):
         self._mousewheel_bound = False
 
     def _bind_mousewheel(self, event=None):
+        self._unbind_mousewheel()
         if not self._mousewheel_bound:
             self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
             self.canvas.bind_all("<Button-4>", self._on_mousewheel)
@@ -148,21 +149,32 @@ class ScrollableFrame(ttk.Frame):
     def _on_canvas_configure(self, event):
         canvas_width = event.width
         self.canvas.itemconfig(self.scrollable_frame_window, width=canvas_width)
-
-    def _on_frame_configure(self, event=None):
+        
+    def _update_scrollregion(self):
+        # update scrollregion
+        self.update_idletasks()  # ensures geometry is updated
         bbox = self.canvas.bbox("all")
         if bbox is None:
             self.canvas.configure(scrollregion=(0, 0, 0, 0))
             self.scrollbar.pack_forget()
+            self._unbind_mousewheel()
             return
         self.canvas.configure(scrollregion=bbox)
         canvas_height = self.canvas.winfo_height()
         content_height = bbox[3] - bbox[1]
         if content_height > canvas_height:
             self.scrollbar.pack(side="right", fill="y")
+            self._bind_mousewheel()
         else:
+            print("unbind-reason: content height < canvas height")
             self.canvas.yview_moveto(0)
             self.scrollbar.pack_forget()
+            self._unbind_mousewheel()
+    def _on_frame_configure(self, event=None):
+        # update scrollregion
+        self._update_scrollregion()
+        self.after(10, self._update_scrollregion)
+        
 
     def destroy(self):
         self._unbind_mousewheel()
