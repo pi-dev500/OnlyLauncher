@@ -37,7 +37,7 @@ class TkMcNews(HtmlFrame):
             #print(get_project_data(project_id))
             print(get_project_dependencies(project_id))
             #print(download_mod(project_id))
-            print(list_needed_mods(project_id, mc_version=self.mcversion))
+            print(resolve_dependencies(project_id, mc_version=self.mcversion))
         
         
 if __name__=="__main__":

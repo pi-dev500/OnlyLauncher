@@ -328,6 +328,45 @@ def download_mod_with_dependencies(project_id: str, output_dir: str,
         print(f"Error downloading mods: {e}")
         return []
 
+def download_several_mods_with_dependencies(project_ids: List[str], output_dir: str, 
+                                   mc_version: str = "1.21.8", loader: str = "fabric") -> List[str]:
+    """
+    Download a mod and all its dependencies to the specified folder.
+    Returns: List of downloaded file names
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    downloaded_files = []
+    
+    try:
+        
+        mods_to_download = set()
+        for _id_ in project_ids:
+          print(f"Resolving dependencies for {_id_}...")
+          mods_to_download.update(resolve_dependencies(_id_, mc_version, loader))
+        
+        if not mods_to_download:
+            print("No mods to download")
+            return []
+        
+        print(f"Found {len(mods_to_download)} mod(s) to download\n")
+        
+        for proj_id, version_id, proj_name, file_name in mods_to_download:
+            print(f"Processing: {proj_name}")
+            version_data = get_version_from_id(version_id)
+            
+            if isinstance(version_data, dict):
+                if download_version_file(version_data, output_dir):
+                    downloaded_files.append(file_name)
+            else:
+                print(f"✗ Error fetching version data: {version_data}")
+        
+        print(f"\n✓ Download complete! {len(downloaded_files)} file(s) downloaded.")
+        return downloaded_files
+        
+    except Exception as e:
+        print(f"Error downloading mods: {e}")
+        return []
+
 # ===== HTML PREVIEW GENERATION (ENHANCED WITH MARKDOWN & SHARP STYLING) =====
 
 def html_from_hits(hits):
@@ -886,8 +925,8 @@ def save_mod_preview_html(project_id: str, output_file: str = "mod_preview.html"
 
 if __name__ == "__main__":
     # Example 1: Download a mod with all dependencies
-    # download_mod_with_dependencies("fabric-api", "./mods", mc_version="1.21.8", loader="fabric")
-    
+    #download_mod_with_dependencies("biomes-o-plenty", "./mods", mc_version="1.20.1", loader="fabric")
+    download_several_mods_with_dependencies(["biomes-o-plenty", "sodium"], "./mods", mc_version="1.20.1", loader="fabric")
     # Example 2: Generate HTML preview for a mod
     # save_mod_preview_html("sodium", "sodium_preview.html")
     
