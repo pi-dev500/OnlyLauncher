@@ -32,6 +32,13 @@ class SwitchButton(ttk.Label):
             self.command(self.value)
     def get(self):
         return self.value
+    
+    def set(self,value):
+        self.value=value
+        if self.value:
+            self.configure(image=self.image_on)
+        else:
+            self.configure(image=self.image_off)
         
 if __name__=="__main__":
     root=Tk()

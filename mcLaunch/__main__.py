@@ -66,7 +66,7 @@ class ProfileShow(ttk.Frame):
         if hasattr(content["loader"],"__len__") and len(content["loader"]) and content["type"].lower() in ("optifine","fabric","forge","neoforge","quilt"):
             self.loader_label = Label(self, text=content["loader"])
             self.loader_label.grid(row=1,column=3)
-        self.edit_button=Button(self,image=self.editimage,command=lambda: app.edit_profile(content),relief="flat",**buttonstylenormal)
+        self.edit_button=Button(self,image=self.editimage,command=self.editp,relief="flat",**buttonstylenormal)
         self.delete_button=Button(self,image=self.deleteimage,command=self.deletep, relief="flat",**buttonstyleerror)
         self.icon.grid(row=0,column=0,sticky="w",rowspan=2)
         self.name_label.grid(row=0,column=1,sticky="w",columnspan=3)
@@ -81,6 +81,10 @@ class ProfileShow(ttk.Frame):
         self.columnconfigure(3,weight=1)
     def deletep(self):
         self.main_app.delete_profile(self.main_content)
+        self.destroy()
+
+    def editp(self):
+        self.main_app.edit_profile(self.main_content)
         self.destroy()
 
 
@@ -114,6 +118,89 @@ class ProfileEdit(ttk.Frame):
         self.neoforge_versions = get_neoforge_versions()
         self.optifine_versions = get_optifine_versions()
         self._create_ui()
+    def set_content(self, params):
+        """
+        Populate all widgets from a dictionary of parameters.
+        
+        Args:
+            params (dict): Dictionary containing profile data with keys:
+                - name: Profile name
+                - type: Version type (vanilla, fabric, forge, etc.)
+                - version: Minecraft version
+                - loader: Loader version
+                - isolated: Boolean for isolated folder
+                - enable_demo: Boolean for demo mode
+                - enable_multiplayer: Boolean for multiplayer
+                - enable_chat: Boolean for chat
+                - enable_quick_play: Boolean for quick play
+                - quick_play: Dict with quick play config (name for solo, host/port for mp)
+        """
+        # Set version type (triggers dependent updates)
+        self.backup = params.copy()
+        version_type = params.get("type", "vanilla").capitalize()
+        if version_type not in self.VERSION_CONFIGS:
+            version_type = "Vanilla"
+        
+        self.version_type_s.set(version_type)
+        self.on_type_select()  # Trigger updates for loader, etc.
+        
+        # Set version
+        version = params.get("version", "latest")
+        self.version_s.set(version)
+        
+        # Trigger version change if needed (updates loader options)
+        if self.VERSION_CONFIGS[version_type]["has_loader"]:
+            self._on_version_change(None)
+        
+        # Set loader if visible
+        loader = params.get("loader", "recommended")
+        if self.loader_s.winfo_exists():
+            self.loader_s.set(loader if loader else "recommended")
+        
+        # Set game options
+        self.isolated_c.set(params.get("isolated", False))
+        self.enable_demo_s.set(params.get("enable_demo", False))
+        self.enable_multiplayer_s.set(params.get("enable_multiplayer", True))
+        self.enable_chat_s.set(params.get("enable_chat", True))
+        
+        # Set quick play
+        enable_quick_play = params.get("enable_quick_play", False)
+        self.enable_quick_play_s.set(enable_quick_play)
+        self.quick_play_toggle(enable_quick_play)
+        
+        # Set quick play details
+        quick_play = params.get("quick_play", {})
+        if enable_quick_play:
+            if isinstance(quick_play, dict):
+                if "name" in quick_play:
+                    # Solo mode
+                    self.quick_play_type_s.set("Solo")
+                    self.quick_play_name_e.delete(0, "end")
+                    self.quick_play_name_e.insert(0, quick_play["name"])
+                    self._on_quick_play_type_change(None)
+                elif "host" in quick_play:
+                    # Multiplayer mode
+                    self.quick_play_type_s.set("Multijoueur")
+                    self.quick_play_name_e.delete(0, "end")
+                    self.quick_play_name_e.insert(0, quick_play.get("host", ""))
+                    self.quick_play_mp_port_e.delete(0, "end")
+                    self.quick_play_mp_port_e.insert(0, str(quick_play.get("port", 25565)))
+                    self._on_quick_play_type_change(None)
+        
+        # Set profile name (do this last so it can be overridden)
+        self.profile_name_entry.delete(0, "end")
+        self.profile_name_entry.insert(0, params.get("name", ""))
+        self.quit_edit = self.save_from_backup
+        self.backbutton.configure(command=self.quit_edit)
+
+    def save_from_backup(self):
+        """Save profile from backup."""
+        self.set_content(self.backup)
+        if self.save_profile(self.backup):
+            self.destroy()
+        else:
+            self.profile_name_label.configure(foreground="red")
+
 
     def _create_ui(self):
         """Create and layout all UI widgets."""
@@ -145,7 +232,7 @@ class ProfileEdit(ttk.Frame):
         self.profile_name_label = Label(self.version_selection_f, text="Nom du profile:")
         self.profile_name_entry = Entry(self.version_selection_f)
 
-        self.isolated_l = Label(self.version_selection_f, text="Isoler le dossier de version (utile pour les modpacks notamment):")
+        self.isolated_l = Label(self.version_selection_f, text="Isoler le dossier de version :\n(utile pour les modpacks notamment)")
         self.isolated_c = SwitchButton(self.version_selection_f, value=False)
 
         self.enable_demo_l = Label(self.version_selection_f, text="Mode demo:")
@@ -812,7 +899,11 @@ class Myapp(Tk):
             #self.update_profile_list()
 
     def edit_profile(self,content):
-        pass
+        self.profile_e.set_content(content)
+        self.delete_profile(content)
+        self.profile_e.pack(fill="both")
+        #self.update_profile_list()
+        self.addprofile_b.pack_forget()
 
     def update(self):
         super().update()
