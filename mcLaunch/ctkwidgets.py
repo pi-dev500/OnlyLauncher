@@ -166,7 +166,6 @@ class ScrollableFrame(ttk.Frame):
             self.scrollbar.pack(side="right", fill="y")
             self._bind_mousewheel()
         else:
-            print("unbind-reason: content height < canvas height")
             self.canvas.yview_moveto(0)
             self.scrollbar.pack_forget()
             self._unbind_mousewheel()
@@ -175,6 +174,15 @@ class ScrollableFrame(ttk.Frame):
         self._update_scrollregion()
         self.after(10, self._update_scrollregion)
         
+    def scroll_to_top(self):
+        """Scroll to the top of the content."""
+        self.canvas.yview_moveto(0)
+        self.scroll_speed = 0  # reset inertia
+
+    def scroll_to_bottom(self):
+        """Scroll to the bottom of the content."""
+        self.canvas.yview_moveto(1.0)
+        self.scroll_speed = 0  # reset inertia
 
     def destroy(self):
         self._unbind_mousewheel()

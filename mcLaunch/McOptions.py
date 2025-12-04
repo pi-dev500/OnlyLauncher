@@ -44,11 +44,11 @@ class AccountDisplay(Frame):
         if self.type == "offline":
             self.type_logo_img=geticon("snapshot",(32,32))
             self.type_logo=Label(self,image=self.type_logo_img,bg=self.background)
-            self.name=Label(self,text=account["pseudo"],bg=self.background)
+            self.name=Label(self,text=account["pseudo"],bg=self.background, fg = "#FFFFFF")
         else:
             self.type_logo_img=geticon("minecrosoft",(32,32))
             self.type_logo=Label(self,image=self.type_logo_img,bg=self.background)
-            self.name=Label(self,text=account["profile_name"],bg=self.background)
+            self.name=Label(self,text=account["profile_name"],bg=self.background, fg = "#FFFFFF")
         self.type_logo.grid(row=0,column=0)
         self.name.grid(row=0,column=1)
         self.delete_image=geticon("delete",(32,32))

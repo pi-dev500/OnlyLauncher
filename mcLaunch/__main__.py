@@ -797,6 +797,7 @@ class Myapp(Tk):
                 self.tabs_profiles["state"]="disabled"
                 self.tabs_profiles.configure(background="green", disabledforeground="white",relief="flat",width=15,height=2)
                 self.profiles_f.pack(side="left",fill="both",expand=True)
+                self.profiles_f.scroll_to_top()
             case "mods":
                 self.tabs_mods["state"]="disabled"
                 self.tabs_mods.configure(background="green", disabledforeground="white",relief="flat",width=15,height=2)
@@ -836,6 +837,7 @@ class Myapp(Tk):
         self.profile_e.pack(fill="both")
         #self.update_profile_list()
         self.addprofile_b.pack_forget()
+        self.profiles_f.scroll_to_bottom()
         self.profileselect.configure(
             values=[p["name"] for p in self.launcher_conf["profiles"]] + [name for
                                                                                                    name, settings in
@@ -904,6 +906,7 @@ class Myapp(Tk):
         self.profile_e.pack(fill="both")
         #self.update_profile_list()
         self.addprofile_b.pack_forget()
+        self.profiles_f.scroll_to_bottom()
 
     def update(self):
         super().update()
