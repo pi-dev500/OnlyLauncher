@@ -204,7 +204,7 @@ class SettingsFrame(Frame):
         #Accounts tab
         self.tab_account_c=Frame(self)
         image_add=ImageTk.PhotoImage(Image.open(os.path.join(selfdir,"images","plus.png")).resize((30,30)))
-        self.add_account_b=Label(self.tab_account_c,image=image_add )# ,relief="flat",command=self.add_account)
+        self.add_account_b=Label(self.tab_account_c,image=image_add)# ,relief="flat",command=self.add_account)
         self.add_account_b.image=image_add
         self.add_account_b.bind("<Button-1>",lambda e: self.add_account())
         #self.add_account_b=Button(self.tab_account_c,text="Ajouter un compte",command=self.add_account)
@@ -214,10 +214,10 @@ class SettingsFrame(Frame):
         self.new_account_bg.image=bg
         self.new_account_bg.place(x=-5,y=-5)
         close_img=ImageTk.PhotoImage(Image.open(os.path.join(selfdir,"images","close.png")).resize((30,30)))
-        self.new_account_cbtn=Label(self.new_account_frame,image=close_img)
+        self.new_account_cbtn=Label(self.new_account_frame,image=close_img, bg="#75b84e")
         self.new_account_cbtn.image=close_img
         self.new_account_cbtn.bind("<Button-1>",lambda e: self.close_new_account_frame())
-        self.new_account_cbtn.place(relx=1,y=0,anchor="ne")
+        self.new_account_cbtn.place(relx=0.98,rely=0.02,anchor="ne")
         self.intra_new_account=Frame(self.new_account_frame,width=400, height=400,bg="#2E3030")
         #self.intra_new_account.pack_propagate(False)
         self.intra_new_account.grid_propagate(False)

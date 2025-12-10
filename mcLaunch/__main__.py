@@ -514,8 +514,9 @@ class ProfileEdit(ttk.Frame):
     def _resolve_loader(self):
         """Resolve the loader to actual value."""
         # Only try to get loader if it's visible
-        if not self.loader_s.winfo_viewable():
+        """if not self.loader_s.winfo_viewable():
             return ""
+        """
 
         loader = self.loader_s.get()
         if loader == "recommended":
