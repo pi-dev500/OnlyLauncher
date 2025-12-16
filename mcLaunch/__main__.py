@@ -656,7 +656,7 @@ class Myapp(Tk):
         self.tabs_news=Button(self.tabsf,text="Actualités",command=lambda t="news": self.show_current_tab(t))
         self.tabs_news.pack(fill="x",side="top")
         
-        self.tabs_profiles=Button(self.tabsf,text="Profiles",command=lambda t="profiles": self.show_current_tab(t))
+        self.tabs_profiles=Button(self.tabsf,text="Versions",command=lambda t="versions": self.show_current_tab(t))
         self.tabs_profiles.pack(fill="x",side="top")
 
         self.tabs_mods=Button(self.tabsf,text="Mods&Modpacks",command=lambda t="mods": self.show_current_tab(t))
@@ -673,8 +673,13 @@ class Myapp(Tk):
         self.profileselect=Combobox(self.tabsf,values=[p["name"] for p in self.launcher_conf["profiles"]]+["Nouveau profile..."]+[name for name,settings in self.official_version_list.items() if settings["type"]=="release"],state="readonly")
         self.profileselect.bind("<<ComboboxSelected>>", self.on_profile_selection)
         self.profileselect.pack(side="bottom",fill="x")
-        self.startbutton.pack(side="bottom",padx=10,pady=10)
         self.profileselect.set("Selectionner un profil...")
+        if "selected_profile" in self.launcher_conf.keys():
+            self.profileselect.set(self.launcher_conf["selected_profile"]["name"])
+            self.startbutton["state"]="normal"
+            self.profile=self.launcher_conf["selected_profile"]
+        self.startbutton.pack(side="bottom",padx=10,pady=10)
+        
         # Barre de statut du bas affichée lors du téléchargement
         print(f"Phase 2 finished after {(time_ns()-tbegin)/1000000} milliseconds")
         # Contenu des onglets
@@ -692,7 +697,7 @@ class Myapp(Tk):
         for p in self.launcher_conf["profiles"]:
             ProfileShow(self.profiles_f.scrollable_frame,p,self).pack(fill="x")
         self.profile_e = ProfileEdit(self.profiles_f.scrollable_frame, command=self.validate_profile)
-        self.addprofile_b=Button(self.profiles_f.scrollable_frame,text="Nouveau profile...",fg="black",bg="green",borderwidth=10,font=self.helv18,height=2,width=25,activebackground="#009900",command=self.create_new_profile)
+        self.addprofile_b=Button(self.profiles_f.scrollable_frame,text="Nouvelle version...",fg="black",bg="green",borderwidth=10,font=self.helv18,height=2,width=25,activebackground="#009900",command=self.create_new_profile)
         self.addprofile_b.pack()
         #self.profile_f_l.pack(fill="both",expand=True)
         #self.profile_e=ProfileEdit(self.newprofile_f,command=self.validate_profile)
@@ -780,7 +785,7 @@ class Myapp(Tk):
             self.deiconify()
     def show_current_tab(self,selection=None):
         
-        if selection in ["news","profiles","mods","options"]: self.current_tab=selection
+        if selection in ["news","versions","mods","options"]: self.current_tab=selection
         ts=(self.tabs_news,self.tabs_profiles,self.tabs_mods,self.tabs_options)
         for t in ts: # remet les onglets dans leur état original
             t["state"]="normal"
@@ -794,7 +799,7 @@ class Myapp(Tk):
                 self.tabs_news["state"]="disabled"
                 self.tabs_news.configure(background="green", disabledforeground="white",relief="flat",width=15,height=2)
                 self.mcnews.pack(side="left",fill="both",expand=True) # affiche le contenu
-            case "profiles":
+            case "versions":
                 self.tabs_profiles["state"]="disabled"
                 self.tabs_profiles.configure(background="green", disabledforeground="white",relief="flat",width=15,height=2)
                 self.profiles_f.pack(side="left",fill="both",expand=True)
@@ -826,6 +831,7 @@ class Myapp(Tk):
                 if p["name"]==selection:
                     self.profile=p
                     self.startbutton["state"]="normal"
+                    self.launcher_conf["selected_profile"]=p
                     return
             if selection in self.official_version_list:
                 self.profile=selection
