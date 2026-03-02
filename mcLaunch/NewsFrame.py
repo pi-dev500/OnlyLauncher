@@ -34,7 +34,7 @@ def replace_youtube_iframes(html_content):
 
 class TkMcNews(HtmlFrame):
     def __init__(self, parent):
-        super().__init__(parent, horizontal_scrollbar=None, messages_enabled=False, javascript_enabled=True)
+        super().__init__(parent, horizontal_scrollbar="auto", messages_enabled=False, javascript_enabled=True)
         self.configure(on_link_click=webbrowser.open)
 
         # Smooth scrolling inertia attributes
