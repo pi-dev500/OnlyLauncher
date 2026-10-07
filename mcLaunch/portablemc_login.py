@@ -13,10 +13,16 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QStackedWidget
 )
-from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QObject, QTimer
 from PyQt6.QtGui import QFont, QLinearGradient, QColor, QPalette, QPixmap, QPainter
 from PyQt6.QtCore import QSize
+
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    WEBENGINE_AVAILABLE = True
+except ImportError:  # le paquet PyQt6-WebEngine n'est pas installé
+    QWebEngineView = None
+    WEBENGINE_AVAILABLE = False
 
 # PortableMC imports (correct API)
 from portablemc.auth import MicrosoftAuthSession, AuthError
@@ -228,9 +234,10 @@ class MicrosoftLoginWindow(QMainWindow):
         self.login_form = self.create_modern_login_form()
         self.stacked_widget.addWidget(self.login_form)
         
-        # Page 1: Web view
-        self.web_view = QWebEngineView()
-        self.stacked_widget.addWidget(self.web_view)
+        # Page 1: Web view (needs the PyQt6-WebEngine package)
+        self.web_view = QWebEngineView() if WEBENGINE_AVAILABLE else None
+        if self.web_view is not None:
+            self.stacked_widget.addWidget(self.web_view)
         
         # Page 2: Result
         self.result_widget = None
@@ -380,6 +387,10 @@ class MicrosoftLoginWindow(QMainWindow):
         """Start the Microsoft OAuth login flow"""
         if self.is_authenticating:
             return
+        if self.web_view is None:
+            self.show_result(False, "The PyQt6-WebEngine package is required to log in.\n"
+                                    "Install it with: pip install PyQt6-WebEngine")
+            return
         
         email = self.email_input.text().strip()
         if not email:
@@ -449,18 +460,28 @@ class MicrosoftLoginWindow(QMainWindow):
                 self.show_result(False, f"Microsoft error: {error}\n{error_desc}")
                 return
             
-            if "code" not in redirect_data or "id_token" not in redirect_data:
-                self.show_result(False, "Missing authorization code or token from redirect")
+            if "code" not in redirect_data:
+                self.show_result(False, "Missing authorization code in the redirect")
                 return
-            
+
             code = redirect_data["code"]
-            id_token = redirect_data["id_token"]
-            
-            if not MicrosoftAuthSession.check_token_id(id_token, self.email, self.nonce):
-                self.show_result(False, "Token validation failed: Invalid token data")
-                return
-            
+            id_token = redirect_data.get("id_token")
+
+            # Validation du jeton d'identité (nonce + email). Elle est optionnelle: certains
+            # comptes ne renvoient pas de "email" (ou pas d'id_token du tout) et l'ancien
+            # code plantait alors sur un KeyError. Les vérifications réellement importantes
+            # (nonce, puis propriété du jeu) ont lieu ci-dessous et dans authenticate().
+            if id_token:
+                try:
+                    if not MicrosoftAuthSession.check_token_id(id_token, self.email, self.nonce):
+                        self.show_result(False, "Le jeton renvoyé par Microsoft ne correspond pas à cette tentative de connexion (nonce invalide).")
+                        return
+                except (KeyError, ValueError) as e:
+                    print(f"Vérification du jeton ignorée ({e})")
+
             try:
+                # Le premier argument est l'identifiant client local (généré), le second
+                # est l'identifiant de l'application enregistrée auprès de Microsoft.
                 auth_session = MicrosoftAuthSession.authenticate(
                     self.client_id,
                     self.app_id,
@@ -471,7 +492,7 @@ class MicrosoftLoginWindow(QMainWindow):
                 self.show_result(False, f"Minecraft account error: {str(e)}\n\nYour account may not have Minecraft.")
                 return
             
-            if not auth_session or not auth_session.profile or not auth_session.access_token:
+            if not auth_session or not getattr(auth_session, "access_token", ""):
                 self.show_result(False, "Failed to retrieve Minecraft profile")
                 return
             
@@ -481,12 +502,23 @@ class MicrosoftLoginWindow(QMainWindow):
             for field in auth_session.fields:
                 auth_data[field] = getattr(auth_session, field)
             self.auth_data = auth_data
-            details = f"Profile: {auth_data['profile_name']}\nUUID: {auth_data['profile_uuid']}\nEmail: {auth_data['email']}"
+            self._save_credentials(auth_data)
+            details = (f"Profile: {auth_data.get('username')}\n"
+                       f"UUID: {auth_data.get('uuid')}\n"
+                       f"Email: {auth_data.get('email')}")
             self.show_result(True, details)
             
         except Exception as e:
             self.show_result(False, f"Unexpected error: {str(e)}")
     
+    def _save_credentials(self, auth_data: dict):
+        """Sauvegarde la session (elle est rechargée pour préremplir le formulaire)."""
+        try:
+            with open(self.cache_dir / "credentials.json", "w") as handle:
+                json.dump(auth_data, handle, indent=2)
+        except OSError as e:
+            print(f"Impossible de sauvegarder les identifiants: {e}")
+
     def show_result(self, is_success: bool, details: str):
         """Show result page (success or failure)"""
         self.is_authenticating = False

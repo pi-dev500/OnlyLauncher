@@ -26,20 +26,61 @@ from switchs import SwitchButton
 from ctkwidgets import *
 from NewsFrame import TkMcNews
 from McOptions import SettingsFrame
+from Modrinthframe import ModsFrame
+from launcher_paths import (build_profile, ensure_profile_folders, instance_dir_for,
+                            mods_dir_for, normalize_profile, profile_label, safe_profile_name,
+                            unique_profile_name, version_and_loader)
 
 from cache_system import *
 from time import time_ns
+import tkinter as tk
+
 tbegin=time_ns()
 print("Python part starting... Finished imports...")
-refresh_cache() # prend un peu de temps on startup, mais évite de tout retélécharger plusieurs fois
-print(f"Phase 1 (cache creation) finished after {(time_ns()-tbegin)/1000000} milliseconds")
+print(f"Phase 1 (imports) finished after {(time_ns()-tbegin)/1000000} milliseconds")
+# Le cache des versions est rafraîchi par l'écran de démarrage (voir main()) une fois la
+# fenêtre affichée: l'interface ne reste donc plus bloquée plusieurs secondes au lancement.
 # de plus, le launcher a accès à ces fichiers sans Internet
-#plusieurs definitions de variables globales auront lieu ici.
-#TODO: add a loading screen that disapears when the window has charged
-class TaskProgressBar(Canvas):
-    def __init__(self,parent):
-        super().__init__(parent)
-        self.rectangle=self.create_rectangle(0,0,0,self.winfo_height(),fill="green")
+class SplashWindow(tk.Toplevel):
+    """Écran de démarrage: s'affiche immédiatement et rend compte du chargement du
+    cache des versions, qui se fait en arrière-plan pendant que la fenêtre se construit.
+
+    C'est un Toplevel et non un second Tk: deux interpréteurs Tcl ne peuvent pas
+    partager leurs images Tk, et le lanceur en utilise beaucoup.
+    """
+
+    def __init__(self, master):
+        super().__init__(master)
+        self.title("mcLaunch")
+        self.configure(bg="#1E2020")
+        self.overrideredirect(True)
+        width, height = 460, 190
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        self.geometry(f"{width}x{height}+{(screen_w-width)//2}+{(screen_h-height)//2}")
+        tk.Label(self, text="mcLaunch", font=("Helvetica", 26, "bold"),
+                 bg="#1E2020", fg="green").pack(pady=(26, 2))
+        self.status = tk.StringVar(self, value="Démarrage...")
+        tk.Label(self, textvariable=self.status, bg="#1E2020", fg="white",
+                 font=("Helvetica", 11)).pack()
+        self.bar = CenteredProgressBar(self, width=380, height=14, bg="#2E3030",
+                                       progress_color="green")
+        self.bar.pack(pady=16)
+        self.bar.set_maximum(100)
+        self.bar.set(0)
+        self.attributes("-topmost", True)
+        self.update()  # force le dessin: la boucle d'évènements n'est pas encore lancée
+
+    def progress(self, message, fraction=None):
+        """Callback compatible avec cache_system.refresh_cache()."""
+        def apply():
+            self.status.set(message)
+            if fraction is not None:
+                self.bar.set(max(0, min(100, fraction*100)))
+        try:
+            self.after(0, apply)
+        except RuntimeError:
+            pass
 class ProfileShow(ttk.Frame):
     def __init__(self,parent,content,app=None):
         self.main_app = app
@@ -117,6 +158,10 @@ class ProfileEdit(ttk.Frame):
         self.forge_versions = get_forge_versions()
         self.neoforge_versions = get_neoforge_versions()
         self.optifine_versions = get_optifine_versions()
+        # NeoForge's maven list only contains NeoForge versions; the Minecraft version
+        # they belong to is derived from the version number (see cache_system).
+        self.neoforge_by_game = neoforge_game_versions()
+        self._versions_cache = {}
         self._create_ui()
     def set_content(self, params):
         """
@@ -135,6 +180,9 @@ class ProfileEdit(ttk.Frame):
                 - enable_quick_play: Boolean for quick play
                 - quick_play: Dict with quick play config (name for solo, host/port for mp)
         """
+        # A profile coming from the configuration (or from a modpack) can be incomplete:
+        # `normalize_profile` fills the missing keys so every widget below is consistent.
+        params = normalize_profile(params) or {}
         # Set version type (triggers dependent updates)
         self.backup = params.copy()
         version_type = params.get("type", "vanilla").capitalize()
@@ -298,6 +346,19 @@ class ProfileEdit(ttk.Frame):
         self.backbutton.grid(row=30, column=0, sticky="w")
 
     def _get_versions_by_type(self, version_type):
+        """Versions available for a type, memoised (the lists never change meanwhile).
+
+        The Forge/NeoForge/OptiFine lists contain thousands of entries; without the
+        cache, every combobox switch rebuilt them from scratch and the "Nouvelle
+        version..." editor took seconds to open.
+        """
+        cached = self._versions_cache.get(version_type)
+        if cached is None:
+            cached = self._build_versions_by_type(version_type)
+            self._versions_cache[version_type] = cached
+        return list(cached)
+
+    def _build_versions_by_type(self, version_type):
         """Get versions filtered by type - centralized to avoid code duplication."""
         config = self.VERSION_CONFIGS.get(version_type)
 
@@ -309,7 +370,9 @@ class ProfileEdit(ttk.Frame):
             if version_type == "Forge":
                 return list(self.forge_versions.keys())
             elif version_type == "NeoForge":
-                return list(self.neoforge_versions)
+                # Only the Minecraft versions NeoForge actually supports, not the 1786
+                # raw NeoForge builds (which are not Minecraft versions at all).
+                return list(self.neoforge_by_game.keys())
             elif version_type == "Optifine":
                 return list(self.optifine_versions.keys())
             return []
@@ -349,7 +412,7 @@ class ProfileEdit(ttk.Frame):
             self.loader_s.grid(row=3, column=1, sticky="ew")
 
             # Add binding for version change if needed
-            if version_type in ("Forge", "Optifine"):
+            if version_type in ("Forge", "Optifine", "NeoForge"):
                 self.version_s.bind("<<ComboboxSelected>>", self._on_version_change)
 
     def _setup_loader(self, version_type):
@@ -368,6 +431,10 @@ class ProfileEdit(ttk.Frame):
             if self.optifine_versions:
                 first_key = next(iter(self.optifine_versions))
                 loaders = ["recommended"] + [v.edition for v in self.optifine_versions[first_key]]
+        elif version_type == "NeoForge":
+            if self.neoforge_by_game:
+                first_key = next(iter(self.neoforge_by_game))
+                loaders = ["recommended"] + self.neoforge_by_game[first_key]
 
         self.loader_s.configure(values=loaders)
         self.loader_s.set("recommended")
@@ -391,6 +458,11 @@ class ProfileEdit(ttk.Frame):
             self.loader_s.set("recommended")
         elif version_type == "Optifine":
             loaders = ["recommended"] + [v.edition for v in self.optifine_versions.get(version, [])]
+            self.loader_s.configure(values=loaders)
+            self.loader_s.set("recommended")
+        elif version_type == "NeoForge":
+            # The NeoForge build number is tied to the Minecraft version: 1.21.1 -> 21.1.x
+            loaders = ["recommended"] + list(self.neoforge_by_game.get(version, []))
             self.loader_s.configure(values=loaders)
             self.loader_s.set("recommended")
 
@@ -485,7 +557,7 @@ class ProfileEdit(ttk.Frame):
     def _save_profile(self):
         """Save the profile and call command callback."""
         result = {
-            "name": self.profile_name_entry.get(),
+            "name": self.profile_name_entry.get().strip(),
             "type": self.version_type_s.get().lower(),
             "version": self._resolve_version(),
             "loader": self._resolve_loader(),
@@ -494,8 +566,14 @@ class ProfileEdit(ttk.Frame):
             "enable_multiplayer": self.enable_multiplayer_s.get(),
             "enable_chat": self.enable_chat_s.get(),
             "enable_quick_play": self.enable_quick_play_s.get(),
-            "quick_play": self._get_quick_play_config(),
         }
+        # Quick play is only stored when it is actually used; `normalize_profile` adds an
+        # empty dict otherwise, so the launcher can always do `profile["quick_play"]`.
+        if result["enable_quick_play"]:
+            result["quick_play"] = self._get_quick_play_config()
+        result = normalize_profile(result)
+        if not result["name"]:
+            result["name"] = f"{result['type'].capitalize()} {result['version']}".strip()
 
         if self.save_profile(result):
             self.destroy()
@@ -556,7 +634,8 @@ class ProfileEdit(ttk.Frame):
             if version in self.optifine_versions:
                 return self.optifine_versions[version][0].edition if self.optifine_versions[version] else ""
         elif version_type == "NeoForge":
-            return self.neoforge_versions[0] if self.neoforge_versions else ""
+            builds = self.neoforge_by_game.get(version) or []
+            return builds[0] if builds else ""
 
         return ""
 
@@ -576,12 +655,23 @@ class ProfileEdit(ttk.Frame):
 class Myapp(Tk):
     active_start_thread=None
     progress=0
-    def __init__(self):
+    def __init__(self, splash_progress=None):
+        self.splash_progress = splash_progress or (lambda message, fraction=None: None)
         self.max_download_size = None
         self.downloaded_size = 0
         self.download_threads_speed = []
-        self.profile=""
+        self.profile=None
+        self.game_running = False
         super().__init__()
+        # L'écran de démarrage est un enfant de cette fenêtre (voir SplashWindow) et
+        # remplace l'ancien "loading screen" qui était encore à faire.
+        self.splash = None
+        self.withdraw()
+        try:
+            self.splash = SplashWindow(self)
+        except Exception as e:  # noqa: BLE001 - the launcher must start even without splash
+            print(f"Ecran de démarrage indisponible: {e}")
+        self.splash_progress("Préparation de l'interface...", 0.05)
         self.v_list=get_version_list()
         try:
             with open(os.path.join(mc_directory,"mcLaunch_profiles.json"),"r") as f:
@@ -594,6 +684,13 @@ class Myapp(Tk):
             self.launcher_conf["profiles"]=self.genprofiles()
         else:
             self.launcher_conf["profiles"]=self.genprofiles(self.launcher_conf["profiles"])
+        # Un profil peut être stocké comme simple nom de version ou être incomplet
+        # (ancienne version du lanceur, fichier modifié à la main, installateur de
+        # modpacks): on les normalise tous, le code de lancement et les onglets Versions
+        # et Mods ne manipulent donc que des dictionnaires complets.
+        self.launcher_conf["profiles"] = [q for q in
+                                          (normalize_profile(q) for q in self.launcher_conf["profiles"])
+                                          if q]
         #self.config={}
         self.progressmessage=tk.StringVar()
         self.progressbar=CenteredProgressBar(self,textvariable=self.progressmessage,bg="#2E3030",fg="white",progress_color="green")
@@ -674,20 +771,25 @@ class Myapp(Tk):
         self.profileselect.bind("<<ComboboxSelected>>", self.on_profile_selection)
         self.profileselect.pack(side="bottom",fill="x")
         self.profileselect.set("Selectionner un profil...")
-        if "selected_profile" in self.launcher_conf.keys():
-            self.profileselect.set(self.launcher_conf["selected_profile"]["name"])
+        # Le profil sélectionné est restauré au démarrage (l'ancien code plantait si le
+        # fichier contenait une simple chaîne au lieu d'un dictionnaire).
+        self.launcher_conf["selected_profile"] = normalize_profile(
+            self.launcher_conf.get("selected_profile"))
+        if self.launcher_conf["selected_profile"] is not None:
+            self.profile = self.launcher_conf["selected_profile"]
+            self.profileselect.set(self.profile["name"])
             self.startbutton["state"]="normal"
-            self.profile=self.launcher_conf["selected_profile"]
         self.startbutton.pack(side="bottom",padx=10,pady=10)
         
         # Barre de statut du bas affichée lors du téléchargement
         print(f"Phase 2 finished after {(time_ns()-tbegin)/1000000} milliseconds")
         # Contenu des onglets
+        self.splash_progress("Chargement des actualités...", 0.30)
         self.mcnews=TkMcNews(self)
         self.mcnews.pack(side="right",fill="both")
-        self.modsframe=Frame(self)
-        self.mod_search_entry=Entry(self.modsframe, width=20)
-        self.mod_search_entry.pack()
+        # Onglet Mods & Modpacks (recherche Modrinth, installation de mods et modpacks)
+        self.splash_progress("Préparation de l'onglet Mods & Modpacks...", 0.40)
+        self.modsframe=ModsFrame(self, app=self)
 
         self.profiles_f=ScrollableFrame(self)
         #self.newprofile_f=Frame(self.profiles_f.scrollable_frame)
@@ -702,21 +804,125 @@ class Myapp(Tk):
         #self.profile_f_l.pack(fill="both",expand=True)
         #self.profile_e=ProfileEdit(self.newprofile_f,command=self.validate_profile)
         #self.profile_e.pack(fill="both")
+        self.splash_progress("Chargement des options et des comptes...", 0.55)
         self.optstab=SettingsFrame(self,self.launcher_conf)
         # affichage
+        self.splash_progress("Affichage de la fenêtre...", 0.65)
         self.show_current_tab()
         self.tabsf.configure(width=300)
         startupdelta=(time_ns()-tbegin)/1000000
         print(f"Startup took {startupdelta} milliseconds")
         self.bind("<Configure>",self.on_resize)
+        # Dernière étape: rafraîchir le cache des versions sans bloquer l'interface.
+        self.start_background_init()
+
+    def call_main(self, function, *args, delay=0, **kwargs):
+        """Exécute `function` dans le fil principal (appelable depuis un thread).
+
+        `after` n'est pas thread-safe: l'ancien code planifiait `_finish_startup` depuis
+        le thread de rafraîchissement du cache, ce qui pouvait tuer l'interpréteur
+        ("Tcl_AsyncDelete: async handler deleted by the wrong thread") quand la fenêtre
+        était fermée juste après. Un minuteur de secours garantit que l'appel a lieu.
+        """
+        state = {"done": False}
+
+        def run():
+            state["done"] = True
+            try:
+                function(*args, **kwargs)
+            except Exception as e:  # noqa: BLE001
+                print(f"Erreur dans la tâche planifiée: {e}")
+
+        watchdog = None
+        try:
+            watchdog = self.after(delay + 3000 if delay else 3000, run)
+            self.after(delay, run)
+        except RuntimeError:
+            if not state["done"] and watchdog is not None:
+                try:
+                    self.after_cancel(watchdog)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def splash_progress(self, message, fraction=None):
+        """Rend compte de l'avancement du démarrage (appelé aussi par cache_system)."""
+        splash = getattr(self, "splash", None)
+        if splash is None:
+            return
+        try:
+            splash.progress(message, fraction)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def start_background_init(self):
+        """Rafraîchit le cache des versions en tâche de fond, puis ferme l'écran de démarrage."""
+        def worker():
+            try:
+                refresh_cache(progress=self.splash_progress)
+            except Exception as e:  # noqa: BLE001 - hors ligne: on garde le cache existant
+                print(f"Cache des versions incomplet: {e}")
+            self.call_main(self._finish_startup, delay=300)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_startup(self):
+        self.splash_progress("Prêt.", 1.0)
+        splash, self.splash = getattr(self, "splash", None), None
+        if splash is not None:
+            try:
+                splash.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        self.deiconify()
+        self.lift()
+        # Le cache des versions vient d'être téléchargé: les listes construites au
+        # démarrage (à partir d'un manifeste Mojang absent ou incomplet) sont refaites,
+        # sans quoi l'éditeur de versions n'affichait que quelques entrées.
+        self.reload_version_data()
+        self.refresh_profiles_ui()
+        print(f"Interface prête après {(time_ns()-tbegin)/1000000} millisecondes")
+
+    def reload_version_data(self):
+        """Recharge les listes de versions (après le rafraîchissement du cache)."""
+        self.official_version_list = get_version_list()
+        self.v_list = self.official_version_list
+        if hasattr(self, "profiles_f"):
+            self.profile_e.official_version_list = self.official_version_list
+            self.profile_e.fabric_support = get_fabric_support()
+            self.profile_e.fabric_loaders = get_fabric_loaders()
+            self.profile_e.quilt_support = get_fabric_support("https://meta.quiltmc.org/v3/versions")
+            self.profile_e.quilt_loaders = get_fabric_loaders("https://meta.quiltmc.org/v3/versions")
+            self.profile_e.forge_versions = get_forge_versions()
+            self.profile_e.neoforge_versions = get_neoforge_versions()
+            self.profile_e.neoforge_by_game = neoforge_game_versions()
+            self.profile_e.optifine_versions = get_optifine_versions()
+            self.profile_e._versions_cache = {}
+            if not self.profile_e.winfo_ismapped():
+                # Ne pas réinitialiser les listes si l'utilisateur est en train de créer
+                # un profil à la main.
+                self.profile_e.on_type_select()
+        if hasattr(self, "modsframe"):
+            self.modsframe._load_game_versions()
 
     def on_resize(self, event):
         if hasattr(event,"width"):
             self.progressbar.configure(width=event.width,height=15)
 
+    # ------------------------------------------------------------------ settings
+    GAME_KEYS = ("enable_demo", "enable_multiplayer", "enable_chat", "enable_quick_play")
+
+    def _profile_settings(self, profile):
+        """Complète les réglages manquants d'un profil (profils créés par un modpack,
+        profils importés d'une ancienne version du lanceur, ...)."""
+        normalized = normalize_profile(profile)
+        return normalized if normalized is not None else profile
+
+    # ------------------------------------------------------------------- launching
     def start_mc(self, in_thread=False):
         if not in_thread:
-            self.active_start_thread=threading.Thread(target=self.start_mc, args=(True,))
+            if self.active_start_thread is not None and self.active_start_thread.is_alive():
+                self.message("Information", "Le jeu est déjà en cours de lancement.")
+                return
+            self.active_start_thread=threading.Thread(target=self.start_mc, args=(True,), daemon=True)
             self.progressbar.place(anchor="sw",x=0,rely=1,relwidth=1,height=25)
             self.progressbar.set(0)
             Misc.lift(self.progressbar)
@@ -724,65 +930,113 @@ class Myapp(Tk):
             self.progressmessage.set("Lancement du jeu...")
             self.active_start_thread.start()
             return
-        if self.profile is not None:
-            #self.withdraw()
-            if type(self.profile)==str:
-
-                env = Version(self.profile)
-                env.auth_session=self.optstab.get_auth()
-                env=env.install(watcher=self)
-                #env.run()
-
-            elif type(self.profile)==dict:
-                ctx = Context()
-                if "isolated" in self.profile.keys() and self.profile["isolated"] is True:
-                    ctx = Context(work_dir = Path(mc_directory) / "versions" / self.profile["name"]) # le dossier de version est créé automatiquement
-                match self.profile["type"]:
-                    case "vanilla" | "snapshot" | "alpha" | "beta":
-                        env=Version(self.profile["version"], context=ctx)
-                    case "forge":
-                        vname = self.profile["version"]
-                        if not self.profile["loader"] == "recommended":
-                            vname = vname + "-" + self.profile["loader"]
-                        env=ForgeVersion(vname, context=ctx)
-                    case "fabric":
-                        args = [self.profile["version"]]
-                        vname = self.profile["version"]
-                        if not self.profile["loader"] == "recommended":
-                            args = [vname, self.profile["loader"]]
-                        env=FabricVersion.with_fabric(*args, context=ctx)
-                    case "quilt":
-                        args= [self.profile["version"]]
-                        vname = self.profile["version"]
-                        if not self.profile["loader"] == "recommended":
-                            args= [vname,self.profile["loader"]]
-                        env=FabricVersion.with_quilt(*args, context=ctx)
-                    case "optifine":
-                        args={"version":self.profile["version"] + ":" + self.profile["loader"]}
-                        env=OptifineVersion(**args, context=ctx)
-                    case "neoforge":
-                        vname = self.profile["version"]
-                        env=_NeoForgeVersion(vname, context=ctx)
-                
-                env.auth_session=self.optstab.get_auth()
-                env.resolution=tuple([int(v) for v in self.optstab.get_resolution().split("x")])
-                if self.profile["enable_multiplayer"] is False:
-                    env.disable_multiplayer=True
-                if self.profile["enable_chat"] is False:
-                    env.disable_chat=True
-                if self.profile["enable_demo"] is True:
-                    env.demo=True
-                if self.profile["enable_quick_play"] is True:
-                    if "port" in self.profile["quick_play"].keys():
-                        env.set_quick_play_multiplayer(host=self.profile["quick_play"]["host"],port=int(self.profile["quick_play"]["port"]))
-                    else:
-                        env.set_quick_play_singleplayer(level_name=self.profile["quick_play"]["name"])
-                env=env.install(watcher=self)
+        if self.profile is None:
+            self.message("Erreur", "Aucun profil sélectionné.")
+            self.after(0, self._hide_progressbar)
+            return
+        try:
+            self.progressmessage.set("Préparation de la version...")
+            env = self.build_environment(self.profile)
+            env.auth_session=self.optstab.get_auth()
+            try:
+                env.resolution=tuple(int(v) for v in self.optstab.get_resolution().split("x"))
+            except (ValueError, AttributeError):
+                print("Résolution invalide, la résolution par défaut sera utilisée.")
+            if self.profile.get("enable_multiplayer") is False:
+                env.disable_multiplayer=True
+            if self.profile.get("enable_chat") is False:
+                env.disable_chat=True
+            if self.profile.get("enable_demo") is True:
+                env.demo=True
+            if self.profile.get("enable_quick_play") is True:
+                quick_play = self.profile.get("quick_play") or {}
+                if quick_play.get("host"):
+                    env.set_quick_play_multiplayer(host=quick_play["host"],
+                                                   port=int(quick_play.get("port", 25565)))
+                elif quick_play.get("name"):
+                    env.set_quick_play_singleplayer(level_name=quick_play["name"])
+            env=env.install(watcher=self)
             env.jvm_args += self.optstab.get_jvm_args()
-            self.withdraw()
-            self.progressbar.place_forget()
+            self.progressmessage.set("Lancement de Minecraft...")
+            self.after(0, self._enter_game_mode)
+            self.game_running = True
             env.run(runner=StreamRunner())
+        except Exception as e:  # noqa: BLE001 - l'utilisateur doit voir l'erreur, pas un crash
+            import traceback
+            traceback.print_exc()
+            self.message("Erreur de lancement", f"Impossible de lancer le jeu: {e}")
+        finally:
+            self.game_running = False
+            self.after(0, self._leave_game_mode)
+
+    def _enter_game_mode(self):
+        """Le jeu prend le relais: on cache la fenêtre du lanceur."""
+        self.progressbar.place_forget()
+        self.withdraw()
+
+    def _leave_game_mode(self):
+        self.progressbar.place_forget()
+        try:
             self.deiconify()
+            self.lift()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _hide_progressbar(self):
+        self.progressbar.place_forget()
+
+    def build_environment(self, profile):
+        """Construit l'objet `Version` de portablemc correspondant à un profil.
+
+        `profile` est soit une chaîne (nom de version officielle), soit un profil modpack.
+        """
+        # Un profil peut être incomplet (modpack, ancien profil): on complète toujours.
+        profile = normalize_profile(profile)
+        if profile is None:
+            raise ValueError("Aucun profil à lancer.")
+        self.profile = profile
+        self._profile_settings(profile)
+        if isinstance(profile, str):
+            return Version(profile)
+        ctx = Context()
+        if profile.get("isolated") is True:
+            # le dossier de version est créé automatiquement
+            ctx = Context(work_dir = Path(mc_directory) / "versions" / profile["name"])
+        profile_type = str(profile.get("type", "vanilla")).lower()
+        if profile_type in ("vanilla", "snapshot", "alpha", "beta"):
+            env = Version(profile["version"], context=ctx)
+        elif profile_type == "forge":
+            vname = profile["version"]
+            if profile.get("loader") and profile["loader"] != "recommended":
+                vname = vname + "-" + profile["loader"]
+            env = ForgeVersion(vname, context=ctx)
+        elif profile_type == "fabric":
+            args = [profile["version"]]
+            if profile.get("loader") and profile["loader"] != "recommended":
+                args = [profile["version"], profile["loader"]]
+            env = FabricVersion.with_fabric(*args, context=ctx)
+        elif profile_type == "quilt":
+            args = [profile["version"]]
+            if profile.get("loader") and profile["loader"] != "recommended":
+                args = [profile["version"], profile["loader"]]
+            env = FabricVersion.with_quilt(*args, context=ctx)
+        elif profile_type == "optifine":
+            loader = profile.get("loader") or "latest"
+            env = OptifineVersion(version=profile["version"] + ":" + loader, context=ctx)
+        elif profile_type == "neoforge":
+            # NeoForge est identifié par sa propre version (21.1.256 pour Minecraft 1.21.1):
+            # portablemc ne sait dériver que les versions 1.x, on utilise donc directement
+            # la version NeoForge choisie, ou la plus récente connue pour cette version de
+            # Minecraft (les versions 26.x n'ont pas de dérivation automatique).
+            build = str(profile.get("loader") or "")
+            if not build or build == "recommended":
+                candidates = neoforge_game_versions().get(profile["version"]) or []
+                build = candidates[0] if candidates else profile["version"]
+            env = _NeoForgeVersion(build, context=ctx)
+        else:
+            raise ValueError(f"Type de profil inconnu: {profile_type!r}")
+        return env
+
     def show_current_tab(self,selection=None):
         
         if selection in ["news","versions","mods","options"]: self.current_tab=selection
@@ -817,6 +1071,47 @@ class Myapp(Tk):
         r=current_list
         return r
 
+    def find_profile(self, name):
+        """Le profil portant ce nom (dictionnaire normalisé), ou None."""
+        if not name:
+            return None
+        for profile in self.launcher_conf["profiles"]:
+            profile = normalize_profile(profile)
+            if profile is not None and profile["name"] == name:
+                return profile
+        return None
+
+    def select_profile(self, name, show_versions_tab=False):
+        """Cible un profil (ou une version officielle) à partir de son nom.
+
+        Renvoie True si la sélection a réussi. C'est le point d'entrée unique: liste
+        déroulante du bas, sélecteur de l'onglet Mods et liens
+        ``mclaunch://target/<profil>`` passent tous par ici, l'onglet Mods est donc
+        toujours synchronisé avec le profil réellement utilisé pour l'installation.
+        """
+        profile = self.find_profile(name)
+        if profile is None and name in self.official_version_list:
+            profile = normalize_profile(name)
+        if profile is None:
+            return False
+        self.profile = profile
+        self.launcher_conf["selected_profile"] = profile
+        self.startbutton["state"] = "normal"
+        self.profileselect.set(profile["name"])
+        if show_versions_tab:
+            self.show_current_tab("profiles")
+        self.sync_mods_frame()
+        try:
+            self.save_options()
+        except Exception as e:  # noqa: BLE001 - la configuration sera réessayée à la fermeture
+            print(f"Impossible de sauvegarder le profil sélectionné: {e}")
+        return True
+
+    def sync_mods_frame(self):
+        """Prévient l'onglet Mods que le profil ciblé a changé (il filtre là-dessus)."""
+        if hasattr(self, "modsframe"):
+            self.modsframe.set_target_profile(self.profile)
+
     def on_profile_selection(self,event):
         self.profileselect.selection_clear()
         selection=self.profileselect.get()
@@ -826,52 +1121,25 @@ class Myapp(Tk):
             self.show_current_tab("profiles")
             self.create_new_profile()
             self.profile=None
-        else:
-            for p in self.launcher_conf["profiles"]:
-                if p["name"]==selection:
-                    self.profile=p
-                    self.startbutton["state"]="normal"
-                    self.launcher_conf["selected_profile"]=p
-                    return
-            if selection in self.official_version_list:
-                self.profile=selection
-                self.startbutton["state"]="normal"
-            else:
-                self.message("Error","Impossible de trouver le profile spécifié. Quelque chose s'est mal passé dans le lanceur.")
+            return
+        if not self.select_profile(selection):
+            self.message("Error","Impossible de trouver le profile spécifié. Quelque chose s'est mal passé dans le lanceur.")
     def message(self,msgt,content):
         print(f"{msgt}: {content}")
     def create_new_profile(self):
         self.profile_e.pack(fill="both")
-        #self.update_profile_list()
         self.addprofile_b.pack_forget()
         self.profiles_f.scroll_to_bottom()
-        self.profileselect.configure(
-            values=[p["name"] for p in self.launcher_conf["profiles"]] + [name for
-                                                                                                   name, settings in
-                                                                                                   self.official_version_list.items()
-                                                                                                   if settings[
-                                                                                                       "type"] == "release"]
-        )
+
     def update_profile_list(self):
-        self.profileselect.configure(
-            values=[p["name"] for p in self.launcher_conf["profiles"]] +
-                   ["Nouveau profile..."] + [name for
-                                           name, settings in
-                                           self.official_version_list.items()
-                                           if settings[
-                                               "type"] == "release"]
-        )
-        for c in self.profiles_f.scrollable_frame.winfo_children():
-            if isinstance(c, ProfileShow):
-                c.destroy()
-        for p in self.launcher_conf["profiles"]:
-            ProfileShow(self.profiles_f.scrollable_frame, p,self).pack(fill="x")
+        """Conservée pour compatibilité: reconstruit la liste et le sélecteur."""
+        self.refresh_profiles_ui()
     def validate_profile(self,content):
         if content==quit:
             self.profile_e.destroy()
             self.profile_e = ProfileEdit(self.profiles_f.scrollable_frame, command=self.validate_profile)
             self.addprofile_b.pack()
-            #self.update_profile_list()
+            self.refresh_profiles_ui()
             return True
         list_names=[p["name"] for p in self.launcher_conf["profiles"]]
         if not content["name"] in list_names:
@@ -881,42 +1149,168 @@ class Myapp(Tk):
             self.profile_e.destroy()
             self.profile_e = ProfileEdit(self.profiles_f.scrollable_frame, command=self.validate_profile)
             self.addprofile_b.pack()
-            self.profileselect.configure(
-            values=[p["name"] for p in self.launcher_conf["profiles"]] +
-                   ["Nouveau profile..."] + [name for
-                                           name, settings in
-                                           self.official_version_list.items()
-                                           if settings[
-                                               "type"] == "release"]
-            )
-            #self.update_profile_list()
+            self.refresh_profiles_ui()
             return True
         else:
             return False
     def delete_profile(self,content):
-        name=content["name"]
-        if name in [p["name"] for p in self.launcher_conf["profiles"]]:
-            del self.launcher_conf["profiles"][self.launcher_conf["profiles"].index(content)]
-            self.profileselect.configure(
-            values=[p["name"] for p in self.launcher_conf["profiles"]] +
-                   ["Nouveau profile..."] + [name for
-                                           name, settings in
-                                           self.official_version_list.items()
-                                           if settings[
-                                               "type"] == "release"]
-            )
-            #self.update_profile_list()
+        """Supprime un profil (accepte le dictionnaire du profil ou son nom)."""
+        content = normalize_profile(content)
+        if content is None:
+            return
+        name = content["name"]
+        names = self.profile_names()
+        if name not in names:
+            return
+        # suppression par nom: l'objet peut avoir été remplacé par refresh_profiles_ui
+        del self.launcher_conf["profiles"][names.index(name)]
+        selected = self.launcher_conf.get("selected_profile")
+        selected = normalize_profile(selected)
+        if selected is not None and selected.get("name") == name:
+            self.launcher_conf.pop("selected_profile", None)
+        if self.profile is not None and self.profile.get("name") == name:
+            self.profile = None
+            self.startbutton["state"] = "disabled"
+            self.profileselect.set("Selectionner un profil...")
+        self.refresh_profiles_ui()
+        try:
+            self.save_options()
+        except Exception as e:  # noqa: BLE001
+            print(f"Sauvegarde impossible: {e}")
 
     def edit_profile(self,content):
+        """Ouvre l'éditeur pré-rempli (le profil est supprimé puis recréé à la sauvegarde)."""
+        content = normalize_profile(content)
+        if content is None:
+            return
         self.profile_e.set_content(content)
         self.delete_profile(content)
         self.profile_e.pack(fill="both")
-        #self.update_profile_list()
         self.addprofile_b.pack_forget()
         self.profiles_f.scroll_to_bottom()
 
+    # ------------------------------------------------------------ profils : helpers
+    def profile_names(self):
+        names = []
+        for profile in self.launcher_conf["profiles"]:
+            profile = normalize_profile(profile)
+            if profile is not None:
+                names.append(profile["name"])
+        return names
+
+    def profile_selector_values(self):
+        """Valeurs de la liste déroulante du bas: profils + "Nouveau profile..." + versions."""
+        return (self.profile_names() + ["Nouveau profile..."] +
+                [name for name, settings in self.official_version_list.items()
+                 if settings["type"] == "release"])
+
+    def refresh_profiles_ui(self):
+        """Reconstruit la liste des profils (versions, mods, sélecteur)."""
+        if not hasattr(self, "profiles_f"):
+            return
+        self.profileselect.configure(values=self.profile_selector_values())
+        for child in list(self.profiles_f.scrollable_frame.winfo_children()):
+            if isinstance(child, ProfileShow):
+                child.destroy()
+        for profile in self.launcher_conf["profiles"]:
+            profile = normalize_profile(profile)
+            if profile is None:
+                continue
+            ProfileShow(self.profiles_f.scrollable_frame, profile, self).pack(fill="x")
+        self.sync_mods_frame()
+        print(f"Profils: {self.profile_names()}")
+
+    def register_profile(self, profile: dict, select: bool = True):
+        """Ajoute un profil à la configuration (utilisé par l'installateur de modpacks)."""
+        profile = normalize_profile(profile)
+        if profile is None:
+            return None
+        if profile["name"] in self.profile_names():
+            profile["name"] = unique_profile_name(profile["name"], self.profile_names())
+        self.launcher_conf["profiles"].append(profile)
+        print(f"Nouveau profil: {profile}")
+        try:
+            self.save_options()
+        except Exception as e:  # noqa: BLE001
+            print(f"Sauvegarde impossible: {e}")
+        self.refresh_profiles_ui()
+        if select:
+            self.select_profile(profile["name"])
+        return profile
+
+    def finalise_modpack_profile(self, profile: dict, result: dict):
+        """Après installation d'un modpack: renseigne la version exacte du loader."""
+        loader = result.get("loader") or profile.get("loader") or ""
+        loader_version = result.get("loader_version") or ""
+        if loader_version:
+            loader = loader_version
+        if loader:
+            profile["loader"] = loader
+        if result.get("mc_version"):
+            profile["version"] = result["mc_version"]
+        profile["type"] = (result.get("loader") or profile.get("type") or "vanilla")
+        if profile["type"] in ("", None):
+            profile["type"] = "vanilla"
+        profile = normalize_profile(profile) or profile
+        ensure_profile_folders(profile)
+        self.save_options()
+        self.refresh_profiles_ui()
+        self.select_profile(profile["name"])
+        print(f"Profil modpack prêt: {profile}")
+
+    def ask_optional_files(self, pack_name: str, optional_files) -> list:
+        """Demande à l'utilisateur quels fichiers optionnels d'un modpack installer.
+
+        Returns the list of selected paths, or None if the user cancelled.
+        """
+        result = {"value": None}
+        top = tk.Toplevel(self)
+        top.title(f"Fichiers optionnels — {pack_name}")
+        top.configure(bg="#2E3030")
+        top.transient(self)
+        tk.Label(top, text=f"Le modpack « {pack_name} » contient des fichiers optionnels.",
+                 bg="#2E3030", fg="white", font=self.helv12).pack(padx=16, pady=(14, 4))
+        tk.Label(top, text="Choisissez ceux à installer (Ctrl+A ne sert à rien ici, c'est une liste).",
+                 bg="#2E3030", fg="#9a9a9a").pack(padx=16)
+        frame = tk.Frame(top, bg="#2E3030")
+        frame.pack(fill="both", expand=True, padx=16, pady=10)
+        listbox = tk.Listbox(frame, selectmode="extended", width=70, height=14,
+                             bg="#1E2020", fg="white", selectbackground="#30b6a2")
+        for entry in optional_files:
+            listbox.insert("end", entry["path"])
+        listbox.pack(side="left", fill="both", expand=True)
+        scroll = tk.Scrollbar(frame, command=listbox.yview)
+        scroll.pack(side="right", fill="y")
+        listbox.configure(yscrollcommand=scroll.set)
+
+        def validate(all_of_them=False):
+            if all_of_them:
+                result["value"] = [entry["path"] for entry in optional_files]
+            else:
+                result["value"] = [listbox.get(i) for i in listbox.curselection()]
+            top.destroy()
+
+        buttons = tk.Frame(top, bg="#2E3030")
+        buttons.pack(fill="x", padx=16, pady=(0, 14))
+        tk.Button(buttons, text="Tout installer", bg="green", fg="black", borderwidth=0,
+                  command=lambda: validate(True)).pack(side="left")
+        tk.Button(buttons, text="Installer la sélection", bg="#2E3030", fg="white", borderwidth=0,
+                  command=validate).pack(side="left", padx=6)
+        tk.Button(buttons, text="Ne rien installer d'optionnel", bg="#2E3030", fg="white",
+                  borderwidth=0, command=lambda: validate(False)).pack(side="left", padx=6)
+        tk.Button(buttons, text="Annuler", bg="#AA0000", fg="white", borderwidth=0,
+                  command=lambda: top.destroy()).pack(side="right")
+        top.update_idletasks()
+        top.grab_set()
+        self.wait_window(top)
+        return result["value"]
+
     def update(self):
         super().update()
+        # CenteredProgressBar.set() exige un maximum: sans lui, l'appel levait une
+        # exception à chaque rafraîchissement de la fenêtre.
+        if getattr(self.progressbar, "_max", 0) in (None, 0):
+            self.progressbar.set_maximum(100)
         self.progressbar.set(self.progress)
 
     def handle(self,event):
@@ -951,8 +1345,19 @@ class Myapp(Tk):
     def save_options(self):
         with open(os.path.join(mc_directory,"mcLaunch_profiles.json"),"w") as cf:
             json.dump(self.launcher_conf,cf)
-if __name__ == "__main__":
+def main():
     app = Myapp()
-    #print(get_version_list())
-    app.mainloop()
-    app.save_options()
+    try:
+        app.mainloop()
+    finally:
+        # La configuration doit être sauvée même si la fenêtre est fermée brutalement.
+        try:
+            app.save_options()
+            print("Configuration sauvegardée.")
+        except Exception as e:  # noqa: BLE001
+            print(f"Impossible de sauvegarder la configuration: {e}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -29,7 +29,23 @@ selfdir=os.path.dirname(os.path.realpath(__file__))
 DIRECTORY = os.path.dirname(os.path.realpath(__file__))
 
 def get_portblemc_auth():
-    jsonauth = subprocess.check_output([sys.executable, os.path.join(DIRECTORY, "portablemc_login.py")])
+    """Ouvre la fenêtre de connexion Microsoft (portablemc_login.py) et récupère la session.
+
+    Le module tourne dans un sous-processus car il utilise PyQt6 (et QtWebEngine) alors que
+    le lanceur est en Tkinter: les deux boucles d'évènements ne peuvent pas cohabiter.
+    """
+    try:
+        jsonauth = subprocess.check_output(
+            [sys.executable, os.path.join(DIRECTORY, "portablemc_login.py")],
+            stderr=subprocess.PIPE,
+            timeout=900)
+    except subprocess.CalledProcessError as e:
+        details = (e.stderr or b"").decode("utf-8", errors="replace").strip().splitlines()
+        raise RuntimeError(details[-1] if details else f"code de sortie {e.returncode}")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("délai de connexion dépassé")
+    if not jsonauth.strip():
+        raise RuntimeError("aucune donnée renvoyée par la fenêtre de connexion")
     return json.loads(jsonauth)
     
 class AccountDisplay(Frame):
@@ -48,7 +64,10 @@ class AccountDisplay(Frame):
         else:
             self.type_logo_img=geticon("minecrosoft",(32,32))
             self.type_logo=Label(self,image=self.type_logo_img,bg=self.background)
-            self.name=Label(self,text=account["profile_name"],bg=self.background, fg = "#FFFFFF")
+            # Un compte Microsoft est décrit par les champs de portablemc: "username"
+            # (l'ancien code lisait "profile_name", qui n'existe pas -> KeyError).
+            self.name=Label(self,text=account.get("username") or account.get("profile_name") or "compte Microsoft",
+                            bg=self.background, fg = "#FFFFFF")
         self.type_logo.grid(row=0,column=0)
         self.name.grid(row=0,column=1)
         self.delete_image=geticon("delete",(32,32))
@@ -176,6 +195,10 @@ class SettingsFrame(Frame):
         self.opts=opts
         if not "sel_account" in self.opts.keys():
             self.opts["sel_account"] = "Steve"
+        # Valeurs par défaut: elles sont ainsi écrites dans la configuration même si
+        # l'utilisateur ne touche jamais aux curseurs.
+        self.opts.setdefault("resolution", "800x600")
+        self.opts.setdefault("memory", 1024)
         self.saccounts=dict()
         self.tabsf=Frame(self)
         self.tab_accounts=Button(self.tabsf,text="Comptes",relief=FLAT,borderwidth=0,background="#2E3030",foreground="white",activebackground="#3E4040",activeforeground="white",disabledforeground="white",command=lambda: self.tab_select("account"),highlightbackground = "#1E2020",highlightcolor= "#1E2020")
@@ -242,6 +265,10 @@ class SettingsFrame(Frame):
         self.validate_b=Button(self.intra_new_account,text="Valider",background="green",activebackground="#00AA00",command=self.validate_new_account,highlightbackground = "#1E2020",highlightcolor= "#1E2020")
         self.intra_new_account.rowconfigure(3,weight=1)
         self.validate_b.grid(row=3,column=1,sticky="se", padx=10, pady=10)
+        # Messages d'erreur de connexion (compte Microsoft indisponible, hors ligne, ...)
+        self.new_account_status=Label(self.intra_new_account,text="",background="#2E3030",
+                                      foreground="#ff7777",wraplength=360,justify="left")
+        self.new_account_status.grid(row=4,column=0,columnspan=2,sticky="w",padx=8,pady=(0,8))
 
         Label(self.tab_account_c, text="Comptes:").grid(row=0,column=0,sticky="w")
         self.add_account_b.grid(row=0,column=1,sticky="e")
@@ -273,17 +300,25 @@ class SettingsFrame(Frame):
             else:
                 return
         else:
-            def authenticate():
+            # Connexion Microsoft: la fenêtre PyQt du module portablemc_login prend la
+            # main, on masque donc la fenêtre du lanceur le temps de l'authentification.
+            self.new_account_status.configure(text="Ouverture de la fenêtre de connexion Microsoft...")
+            ret = None
+            try:
                 ret = get_portblemc_auth()
-                if ret != None:
-                    pseudo = ret["profile_name"]
-                    self.opts[accounts][pseudo] = ret
-                    self.saccounts[pseudo]=AccountDisplay(self.list_accounts_f.scrollable_frame,self.opts["accounts"][pseudo],selectcommand=lambda acc=pseudo: self.select_account(acc),deletecommand=lambda acc=pseudo: self.delete_account(acc))
-                    self.saccounts[pseudo].pack(fill="x")
-            root = self.winfo_toplevel()  # Get closest parent window (usually root)
-            root.withdraw()  # Hide the window
-            authenticate()
-            root.deiconify()  # Show the window
+            except Exception as e:  # noqa: BLE001 - hors ligne, module PyQt6 absent, ...
+                self.new_account_status.configure(
+                    text=f"Connexion Microsoft impossible: {e}")
+                return
+            pseudo = (ret or {}).get("username") or (ret or {}).get("profile_name")
+            if not ret or not pseudo:
+                self.new_account_status.configure(text="Connexion annulée ou incomplète.")
+                return
+            ret["type"] = "microsoft"
+            self.opts["accounts"][pseudo] = ret
+            self.saccounts[pseudo]=AccountDisplay(self.list_accounts_f.scrollable_frame,self.opts["accounts"][pseudo],selectcommand=lambda acc=pseudo: self.select_account(acc),deletecommand=lambda acc=pseudo: self.delete_account(acc))
+            self.saccounts[pseudo].pack(fill="x")
+            self.select_account(pseudo)
         self.close_new_account_frame()
     def close_new_account_frame(self):
         self.new_account_frame.pack_forget()
@@ -294,11 +329,17 @@ class SettingsFrame(Frame):
         if not len(self.opts["accounts"])==0:
             if self.opts["sel_account"] in self.opts["accounts"].keys():
                 if "type" in self.opts["accounts"][self.opts["sel_account"]].keys() and self.opts["accounts"][self.opts["sel_account"]]["type"] == "microsoft":
-                    p = self.opts["accounts"][self.opts["sel_account"]]
-                    auths = MicrosoftAuthSession.__new__() # auth back to minecraft
-                    for field in auths.fields:
-                        setattr(auths, field, p[field])
-                    auths.fixes()
+                    p = dict(self.opts["accounts"][self.opts["sel_account"]])
+                    # `fix_data` migre les anciennes données (client_id -> app_id,
+                    # génération du client_id, récupération du xuid depuis le jeton).
+                    # `MicrosoftAuthSession.fixes` n'existe pas: l'ancien code levait
+                    # systématiquement une AttributeError au lancement.
+                    for field in MicrosoftAuthSession.fields:
+                        p.setdefault(field, "")
+                    MicrosoftAuthSession.fix_data(p)
+                    auths = MicrosoftAuthSession.__new__(MicrosoftAuthSession)
+                    for field in MicrosoftAuthSession.fields:
+                        setattr(auths, field, p.get(field, ""))
                     return auths
                 else:
                     return OfflineAuthSession(self.opts["accounts"][self.opts["sel_account"]]["pseudo"],self.opts["accounts"][self.opts["sel_account"]]["uuid"])
@@ -351,16 +392,32 @@ class SettingsFrame(Frame):
                 #Button(self.list_accounts_f.scrollable_frame,background="green",disabledforeground="black",text=account,relief="flat",state="disabled").pack(fill="x")
 
     def select_account(self,account):
-        if self.opts["sel_account"] in self.opts["accounts"].keys():
+        if account not in self.opts["accounts"].keys():
+            return
+        if self.opts["sel_account"] in self.saccounts:
             self.saccounts[self.opts["sel_account"]]["state"]="normal"
         self.opts["sel_account"]=account
         self.saccounts[self.opts["sel_account"]]["state"]="selected"
+        self.updatejson()
         #self.show_accounts_list()
 
     def delete_account(self,account):
+        if account not in self.opts["accounts"].keys():
+            return
         if len(self.opts["accounts"])==1:
-            return # TODO: add back steve account if there is none remaining after deletion
-        if account in self.opts["accounts"].keys():
+            # Il doit toujours rester au moins un compte pour pouvoir lancer le jeu hors
+            # ligne: si c'était le dernier, on recrée un compte "Steve" (ancien TODO).
+            del self.opts["accounts"][account]
+            self.saccounts[account].destroy()
+            del self.saccounts[account]
+            self.opts["accounts"]["Steve"] = {"pseudo": "Steve", "uuid": str(uuid4())}
+            self.saccounts["Steve"] = AccountDisplay(
+                self.list_accounts_f.scrollable_frame, self.opts["accounts"]["Steve"],
+                selectcommand=lambda acc="Steve": self.select_account(acc),
+                deletecommand=lambda acc="Steve": self.delete_account(acc))
+            self.saccounts["Steve"].pack(fill="x")
+            self.select_account("Steve")
+            return
             del self.opts["accounts"][account]
             self.saccounts[account].destroy()
             del self.saccounts[account]

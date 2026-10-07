@@ -1,7 +1,17 @@
+# Le fork utilise par le lanceur (contient les correctifs du projet et l'API OptiFine/NeoForge).
 git+https://github.com/pi-dev500/portablemc.git
-BeautifulSoup4
-requests
+# Rendu HTML de l'onglet "Mods & Modpacks" et de la page Actualites.
 TkinterWeb
+# Parsing des listes de versions (Forge / NeoForge / OptiFine).
+BeautifulSoup4
 lxml
+# Requetes HTTP vers Modrinth et les CDN.
+requests
+# Icones et pochettes de mods.
 Pillow
+# Memoire disponible / detection du jeu en cours.
 psutil
+# Fenetre de connexion Microsoft de l'onglet Options (sous-processus Qt).
+# PyQt6-WebEngine fournit PyQt6.QtWebEngineWidgets, indispensable pour l'echange OAuth.
+PyQt6
+PyQt6-WebEngine

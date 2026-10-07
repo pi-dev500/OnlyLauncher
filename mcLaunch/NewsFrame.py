@@ -33,9 +33,21 @@ def replace_youtube_iframes(html_content):
     return pattern.sub(iframe_replacer, html_content)
 
 class TkMcNews(HtmlFrame):
+    """Page "Actualités" de minecraft.fr.
+
+    Le site peut être indisponible ou changer de structure: dans ce cas la dernière page
+    correctement téléchargée (cache.html) est réaffichée au lieu d'un simple message
+    d'erreur, et le téléchargement est retenté quelques fois.
+    """
+
+    #: Nombre maximum de tentatives quand minecraft.fr est injoignable.
+    MAX_ATTEMPTS = 3
+
     def __init__(self, parent):
-        super().__init__(parent, horizontal_scrollbar="auto", messages_enabled=False, javascript_enabled=True)
-        self.configure(on_link_click=webbrowser.open)
+        super().__init__(parent, horizontal_scrollbar="auto", messages_enabled=False,
+                         javascript_enabled=False, on_link_click=self._on_link_click,
+                         on_navigate_fail=self._on_link_click)
+        self.filtered_html = ""
 
         # Smooth scrolling inertia attributes
         self.scroll_speed = 0
@@ -50,6 +62,47 @@ class TkMcNews(HtmlFrame):
         # Start loading news in background
         self.tl = Thread(target=self.load_news, daemon=True)
         self.after(0, self.tl.start)
+
+    def _on_link_click(self, url):
+        """Les liens normaux vont au navigateur, `mclaunch://news/reload` recharge la page."""
+        url = str(url)
+        if url.startswith("mclaunch://news/reload"):
+            Thread(target=self.load_news, kwargs={"failmessage": False}, daemon=True).start()
+            return
+        webbrowser.open(url)
+
+    def _show_html(self, html):
+        """Charge du HTML dans le fil principal (le widget n'est pas thread-safe)."""
+        state = {"done": False}
+        watchdog = None
+
+        def run():
+            state["done"] = True
+            try:
+                self.load_html(html)
+            except Exception as e:  # noqa: BLE001
+                print(f"Affichage des actualités impossible: {e}")
+        try:
+            watchdog = self.after(3000, run)
+            self.after(0, run)
+        except RuntimeError:
+            if not state["done"] and watchdog is not None:
+                try:
+                    self.after_cancel(watchdog)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _load_cached_news(self):
+        """Réaffiche la dernière page correctement récupérée. False si aucune."""
+        try:
+            with open(os.path.join(DIRECTORY, "cache.html"), "r", encoding="utf-8") as f:
+                cached = f.read()
+        except OSError:
+            return False
+        if "posts-blog-feed-module" not in cached and "paginated_content" not in cached:
+            return False
+        self.filtered_html = cached
+        return True
 
     def _bind_mousewheel(self, event=None):
         """Bind mousewheel events when mouse enters the HtmlFrame."""
@@ -121,15 +174,30 @@ class TkMcNews(HtmlFrame):
         # Schedule next frame (~15ms for smooth 60fps-ish feel)
         self.after(15, self._run_inertia)
 
-    def load_news(self, failmessage=True):
-        """Load news from minecraft.fr with error handling."""
+    def load_news(self, failmessage=True, attempt=0):
+        """Charge les actualités de minecraft.fr (avec repli sur la dernière page reçue)."""
         try:
             url = "https://minecraft.fr/categorie/news/"
-            response = requests.get(url)
+            response = requests.get(
+                url, timeout=10,
+                headers={"User-Agent": "OnlyLauncher/mcLaunch "
+                                       "(https://github.com/pi-dev500/OnlyLauncher)"})
+            response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
 
             # Rechercher la section d'intérêt avec les classes spécifiées
             posts_section = soup.find('div', class_="paginated_content")
+            if posts_section is None:
+                # Le site a changé de structure: on tente les conteneurs voisins avant
+                # d'abandonner, sinon la page restait vide.
+                for alternative in ("et_pb_posts_blog_feed_masonry", "posts-blog-feed-module",
+                                    "entry-content", "main"):
+                    posts_section = soup.find("div", class_=alternative) or soup.find(alternative)
+                    if posts_section is not None:
+                        print(f"Actualités: structure inconnue, repli sur <div class={alternative!r}>")
+                        break
+            if posts_section is None:
+                raise ValueError("section d'actualités introuvable (site mis à jour ?)")
 
             # Ajouter des headers customisés pour le style
             custom_head = ""
@@ -141,30 +209,43 @@ class TkMcNews(HtmlFrame):
 
             # Recomposer le HTML filtré avec le head personnalisé
             self.filtered_html = f"<html>{custom_head}<body><div class=\"posts-blog-feed-module post-module et_pb_extra_module masonry et_pb_posts_blog_feed_masonry_0 paginated et_pb_extra_module\">"
-
-            if posts_section:
-                posts_section = replace_youtube_iframes(str(posts_section))
-                with open("cache.html", "w") as f:
-                    f.write(str(posts_section))
-                self.filtered_html += str(posts_section)
-
+            self.filtered_html += replace_youtube_iframes(str(posts_section))
             self.filtered_html += "</div></body></html>"
 
             with open(os.path.join(DIRECTORY, "cache.html"), "w", encoding="utf-8") as c:
                 c.write(self.filtered_html)
 
             print("Actualités récupérées depuis minecraft.fr")
+            self._show_html(self.filtered_html)
+            return
 
         except Exception as e:
-            print(e)
+            print(f"Actualités indisponibles: {e}")
             if failmessage:
-                print("Impossible de télécharger le flux d'actualités, il semble que l'ordinateur n'a pas accès à Internet")
-            self.filtered_html = "<html><head></head><body><h1>Pas de connexion internet.</h1><p>Impossible de récupérer les actualités.</p></body></html>"
-            # Retry after 5 seconds
-            self.after(5000, lambda: self.load_news(False))
+                print("Impossible de télécharger le flux d'actualités "
+                      "(minecraft.fr est peut-être hors service, ou l'ordinateur est hors ligne).")
+            # Repli: la dernière page correctement récupérée reste affichée.
+            if self._load_cached_news():
+                self._show_html(self.filtered_html)
+                return
 
-        # Load HTML into the frame
-        self.after(1, lambda: self.load_html(self.filtered_html))
+        attempt_note = ("Nouvelle tentative en cours…" if attempt < self.MAX_ATTEMPTS
+                        else "Le site minecraft.fr est probablement hors service.")
+        self.filtered_html = (
+            "<html><head><style>body{background:#1e1e1e;color:#e8e8e8;font-family:sans-serif;"
+            "padding:24px} h1{color:#30b6a2} a{color:#30b6a2}</style></head><body>"
+            "<h1>Actualités indisponibles.</h1>"
+            "<p>Impossible de récupérer les actualités depuis minecraft.fr.</p>"
+            f"<p>{attempt_note}</p>"
+            '<p><a href="mclaunch://news/reload">Réessayer maintenant</a></p>'
+            "</body></html>")
+        if attempt < self.MAX_ATTEMPTS:
+            # Retry after 5 seconds
+            try:
+                self.after(5000, lambda: self.load_news(False, attempt + 1))
+            except RuntimeError:
+                pass
+        self._show_html(self.filtered_html)
 
     def destroy(self):
         """Clean up bindings before destroying the widget."""
