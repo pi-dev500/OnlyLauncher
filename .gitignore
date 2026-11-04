@@ -31,6 +31,9 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# ...sauf le spec de release, qui doit être versionné : les workflows CI en
+# ont besoin (sans lui, PyInstaller échoue sur "Spec file not found").
+!packaging/onlylauncher.spec
 
 # Installer logs
 pip-log.txt
