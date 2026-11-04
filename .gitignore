@@ -167,3 +167,10 @@ search_results.html
 /mcLaunch/mods
 mcLaunch/sodium_preview.html
 /mods
+
+# Artefacts de build (packaging/build_release.py)
+/build_out/
+/packaging/gitwin/
+/packaging/icons/onlylauncher-256.png
+/packaging/icons/onlylauncher-512.png
+/packaging/icons/onlylauncher.ico

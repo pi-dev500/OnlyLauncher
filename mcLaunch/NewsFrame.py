@@ -1,14 +1,34 @@
+import os
+import re
+import sys
+import tkinter as tk
+import webbrowser
+from threading import Thread
+
 import requests
 from bs4 import BeautifulSoup
-import tkinter as tk
 from tkinterweb import HtmlFrame
-import webbrowser
-import os
-import sys
-from threading import Thread
-import re
 
 DIRECTORY = os.path.dirname(os.path.realpath(__file__))
+
+
+def _cache_path():
+    """Retourne un chemin inscriptible pour le cache des actualités.
+
+    Dans une AppImage (ou toute installation en lecture seule) ``DIRECTORY``
+    pointe dans un point de montage en lecture seule : on écrit alors le cache
+    dans ``$XDG_CACHE_HOME/onlylauncher``. En développement, ou si ce dossier
+    n'est pas créable, on garde l'ancien emplacement à côté du script.
+    """
+    if not getattr(sys, "frozen", False):
+        return os.path.join(DIRECTORY, "cache.html")
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    directory = os.path.join(base, "onlylauncher")
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError:
+        return os.path.join(DIRECTORY, "cache.html")
+    return os.path.join(directory, "cache.html")
 
 def extract_youtube_video_id(url):
     regex_pattern = r'(?:v=|be\/|embed\/)([\w-]{11})'
@@ -26,7 +46,6 @@ def replace_youtube_iframes(html_content):
 
     def iframe_replacer(match):
         video_url = match.group(1)
-        video_id = match.group(2)
         thumbnail_url = get_yt_image(video_url)
         return f'<a href="{video_url}"><img src="{thumbnail_url}" alt="YouTube Video Thumbnail" style="width: 627px"></a>' if thumbnail_url else match.group(0)
 
@@ -90,19 +109,22 @@ class TkMcNews(HtmlFrame):
                 try:
                     self.after_cancel(watchdog)
                 except Exception:  # noqa: BLE001
-                    pass
+                    print("Annulation du minuteur impossible")
 
     def _load_cached_news(self):
         """Réaffiche la dernière page correctement récupérée. False si aucune."""
-        try:
-            with open(os.path.join(DIRECTORY, "cache.html"), "r", encoding="utf-8") as f:
-                cached = f.read()
-        except OSError:
-            return False
-        if "posts-blog-feed-module" not in cached and "paginated_content" not in cached:
-            return False
-        self.filtered_html = cached
-        return True
+        candidates = [_cache_path(), os.path.join(DIRECTORY, "cache.html")]
+        cached = None
+        for candidate in dict.fromkeys(candidates):
+            try:
+                with open(candidate, "r", encoding="utf-8") as f:
+                    cached = f.read()
+            except OSError:
+                continue
+            if "posts-blog-feed-module" in cached or "paginated_content" in cached:
+                self.filtered_html = cached
+                return True
+        return False
 
     def _bind_mousewheel(self, event=None):
         """Bind mousewheel events when mouse enters the HtmlFrame."""
@@ -212,8 +234,12 @@ class TkMcNews(HtmlFrame):
             self.filtered_html += replace_youtube_iframes(str(posts_section))
             self.filtered_html += "</div></body></html>"
 
-            with open(os.path.join(DIRECTORY, "cache.html"), "w", encoding="utf-8") as c:
-                c.write(self.filtered_html)
+            try:
+                with open(_cache_path(), "w", encoding="utf-8") as c:
+                    c.write(self.filtered_html)
+            except OSError as cache_error:
+                # Cache non inscriptible: les actualités s'affichent quand même.
+                print(f"Cache des actualités non enregistré: {cache_error}")
 
             print("Actualités récupérées depuis minecraft.fr")
             self._show_html(self.filtered_html)

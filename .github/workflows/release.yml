@@ -1,0 +1,106 @@
+name: Release
+
+# Builds the Linux AppImage and the Windows .exe on every version tag and
+# attaches both files to the GitHub release.
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# The artifacts can also be built locally with packaging/build_release.py
+# (see that file for the `appimage`, `onefile` and `wine-exe` sub-commands).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  ONLYLAUNCHER_NAME: OnlyLauncher
+
+jobs:
+  linux-appimage:
+    name: Linux AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 \
+            libxcomposite1 libxdamage1 libxrandr2 libasound2 \
+            libqt6webenginecore6 || true
+          python -m pip install --upgrade pip
+          # portablemc vient du fork (correctifs OptiFine/NeoForge), pas de PyPI.
+          python -m pip install \
+            pyinstaller requests beautifulsoup4 lxml tkinterweb pillow psutil \
+            "PyQt6==6.7.*" "PyQt6-WebEngine==6.7.*" \
+            "git+https://github.com/pi-dev500/portablemc.git"
+
+      - name: Build AppImage
+        run: python packaging/build_release.py appimage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: build_out/OnlyLauncher-x86_64.AppImage
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build_out/OnlyLauncher-x86_64.AppImage
+
+  windows-exe:
+    name: Windows executable
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # git est préinstallé sur windows-latest : pip peut cloner le fork.
+          python -m pip install `
+            pyinstaller requests beautifulsoup4 lxml tkinterweb pillow psutil `
+            PyQt6 PyQt6-WebEngine `
+            "git+https://github.com/pi-dev500/portablemc.git"
+
+      - name: Verify portablemc comes from the fork
+        run: |
+          python -c "import portablemc, pathlib; p = pathlib.Path(portablemc.__file__); print(p); assert 'site-packages' in str(p)"
+          python -c "import portablemc.optifine; print('fork ok: portablemc.optifine')"
+
+      - name: Generate icons
+        run: python packaging/build_release.py icon
+
+      - name: Build executable
+        env:
+          ONLYLAUNCHER_MODE: onefile
+          ONLYLAUNCHER_CONSOLE: "0"
+          ONLYLAUNCHER_ICON: packaging/icons/onlylauncher.ico
+        run: |
+          python -m PyInstaller --noconfirm --clean `
+            --distpath build_out/windows --workpath build_out/work-windows `
+            packaging/onlylauncher.spec
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: build_out/windows/OnlyLauncher.exe
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build_out/windows/OnlyLauncher.exe
