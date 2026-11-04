@@ -26,7 +26,14 @@ MODE = os.environ.get("ONLYLAUNCHER_MODE", "onedir").strip().lower()
 NAME = os.environ.get("ONLYLAUNCHER_NAME", "OnlyLauncher")
 CONSOLE = os.environ.get("ONLYLAUNCHER_CONSOLE", "1").strip() != "0"
 #: Optional icon (``.ico`` on Windows, ``.png``/``.icns`` elsewhere).
+#: A relative path is anchored on ``ROOT`` (the repository root), never on
+#: ``SPECPATH``: PyInstaller resolves the ``icon=`` argument of ``EXE`` against
+#: the spec directory, so a CI-provided ``packaging/icons/onlylauncher.ico``
+#: was looked up as ``packaging/packaging/icons/onlylauncher.ico`` and the
+#: build died on "Icon input file ... not found".
 ICON = os.environ.get("ONLYLAUNCHER_ICON") or None
+if ICON and not os.path.isabs(ICON):
+    ICON = os.path.normpath(os.path.join(ROOT, ICON))
 if ICON and not os.path.isfile(ICON):
     print(f"[spec] icone ignoree (introuvable): {ICON}")
     ICON = None
