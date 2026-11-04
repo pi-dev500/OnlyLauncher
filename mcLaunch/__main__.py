@@ -81,6 +81,15 @@ class SplashWindow(tk.Toplevel):
             self.after(0, apply)
         except RuntimeError:
             pass
+class _CancelEdit:
+    """Sentinelle envoyée au callback de ``ProfileEdit`` quand l'utilisateur annule.
+
+    Remplace le builtin ``quit`` : celui-ci est fourni par le module ``site``, que
+    PyInstaller n'embarque pas, donc ``quit`` n'existait pas dans le binaire gelé et
+    la sauvegarde/annulation d'un profil plantait sur ``NameError``.
+    """
+
+
 class ProfileShow(ttk.Frame):
     def __init__(self,parent,content,app=None):
         self.main_app = app
@@ -646,11 +655,17 @@ class ProfileEdit(ttk.Frame):
         return False
 
     def quit_edit(self):
-        """Cancel edit - EXACT original behavior."""
+        """Annule l'édition et prévient le propriétaire.
+
+        Le builtin ``quit`` de CPython n'existe pas dans un binaire gelé par
+        PyInstaller (``site`` n'est pas importé) : ``self.command(quit)`` levait
+        ``NameError: name 'quit' is not defined`` dès qu'on cliquait sur
+        "Annuler..." ou qu'on sauvegardait un profil. On envoie donc la classe
+        sentinelle ``_CancelEdit``, comparée par identité dans ``validate_profile``.
+        """
         if self.command is not None:
-            return self.command(quit)  # IMPORTANT: pass 'quit' object, not string
-        else:
-            self.destroy()
+            return self.command(_CancelEdit)
+        self.destroy()
 
 class Myapp(Tk):
     active_start_thread=None
@@ -1135,7 +1150,7 @@ class Myapp(Tk):
         """Conservée pour compatibilité: reconstruit la liste et le sélecteur."""
         self.refresh_profiles_ui()
     def validate_profile(self,content):
-        if content==quit:
+        if content is _CancelEdit:
             self.profile_e.destroy()
             self.profile_e = ProfileEdit(self.profiles_f.scrollable_frame, command=self.validate_profile)
             self.addprofile_b.pack()

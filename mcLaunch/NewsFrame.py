@@ -51,6 +51,30 @@ def replace_youtube_iframes(html_content):
 
     return pattern.sub(iframe_replacer, html_content)
 
+def resolve_lazy_images(html_content):
+    """Remplace les placeholders ``data:image/svg+xml`` par la vraie image.
+
+    minecraft.fr (Jetpack/WordPress) sert chaque illustration sous la forme
+    ``<img src="data:image/svg+xml,..." data-lazy-src=".../photo.webp">`` : le
+    ``src`` n'est qu'un rectangle vide, la vraie URL est dans ``data-lazy-src``
+    et n'est injectée que par le JavaScript du site. Comme la page est rendue
+    sans JavaScript, toutes les illustrations restaient vides. TkinterWeb ne
+    sait d'ailleurs pas décoder le SVG (ni CairoSVG ni PyGObject/Rsvg ne sont
+    installés), donc ces ``src`` échouaient aussi en erreur.
+    """
+    soup = BeautifulSoup(html_content, "html.parser")
+    for image in soup.find_all("img"):
+        source = image.get("src") or ""
+        if not source.startswith("data:image"):
+            continue
+        for attribute in ("data-lazy-src", "data-src", "data-original"):
+            real_source = image.get(attribute)
+            if real_source:
+                image["src"] = real_source
+                break
+    return str(soup)
+
+
 class TkMcNews(HtmlFrame):
     """Page "Actualités" de minecraft.fr.
 
@@ -231,7 +255,7 @@ class TkMcNews(HtmlFrame):
 
             # Recomposer le HTML filtré avec le head personnalisé
             self.filtered_html = f"<html>{custom_head}<body><div class=\"posts-blog-feed-module post-module et_pb_extra_module masonry et_pb_posts_blog_feed_masonry_0 paginated et_pb_extra_module\">"
-            self.filtered_html += replace_youtube_iframes(str(posts_section))
+            self.filtered_html += resolve_lazy_images(replace_youtube_iframes(str(posts_section)))
             self.filtered_html += "</div></body></html>"
 
             try:
