@@ -3,7 +3,7 @@ requirements=["portablemc>4.5","BeautifulSoup4","requests","TkinterWeb","lxml"]
 
 import platform
 assert platform.system() in ["Windows","Linux"], "Not supported on your system"
-from portablemc.standard import Version, DownloadProgressEvent, StreamRunner, VersionNotFoundError, DownloadStartEvent, \
+from portablemc.standard import Version, DownloadProgressEvent, VersionNotFoundError, DownloadStartEvent, \
     DownloadCompleteEvent, Context
 from portablemc.forge import ForgeVersion, _NeoForgeVersion
 from portablemc.fabric import FabricVersion
@@ -11,6 +11,7 @@ from portablemc.optifine import OptifineVersion, get_compatible_versions as of_v
     get_offline_versions as of_offline_dict, OptifinePatchEvent, OptifineStartInstallEvent
 import json
 #import sys
+import queue
 import threading
 import os
 import uuid
@@ -27,6 +28,7 @@ from ctkwidgets import *
 from NewsFrame import TkMcNews
 from McOptions import SettingsFrame
 from Modrinthframe import ModsFrame
+from crash_report import run_game as run_game_with_report, show_crash_dialog
 from launcher_paths import (build_profile, ensure_profile_folders, instance_dir_for,
                             mods_dir_for, normalize_profile, profile_label, safe_profile_name,
                             unique_profile_name, version_and_loader)
@@ -678,6 +680,11 @@ class Myapp(Tk):
         self.profile=None
         self.game_running = False
         super().__init__()
+        # Les crashs sont détectés dans le thread de lancement, mais Tk n'accepte
+        # `after()` que depuis le thread qui exécute la boucle d'événements : on
+        # passe donc par une file lue par un minuteur du thread principal.
+        self._crash_queue = queue.Queue()
+        self._crash_poller = None
         # L'écran de démarrage est un enfant de cette fenêtre (voir SplashWindow) et
         # remplace l'ancien "loading screen" qui était encore à faire.
         self.splash = None
@@ -894,6 +901,7 @@ class Myapp(Tk):
         # sans quoi l'éditeur de versions n'affichait que quelques entrées.
         self.reload_version_data()
         self.refresh_profiles_ui()
+        self._start_crash_poller()
         print(f"Interface prête après {(time_ns()-tbegin)/1000000} millisecondes")
 
     def reload_version_data(self):
@@ -975,7 +983,11 @@ class Myapp(Tk):
             self.progressmessage.set("Lancement de Minecraft...")
             self.after(0, self._enter_game_mode)
             self.game_running = True
-            env.run(runner=StreamRunner())
+            # La sortie du jeu est capturée et son code de sortie évalué : un crash
+            # ne doit pas se solder par un retour silencieux au lanceur.
+            crash = run_game_with_report(self, env, interactive=False)
+            if crash is not None:
+                self._report_crash(crash)
         except Exception as e:  # noqa: BLE001 - l'utilisateur doit voir l'erreur, pas un crash
             import traceback
             traceback.print_exc()
@@ -996,6 +1008,50 @@ class Myapp(Tk):
             self.lift()
         except Exception:  # noqa: BLE001
             pass
+
+    def _report_crash(self, report):
+        """Signale un crash, depuis le thread de lancement ou le thread principal.
+
+        `start_mc` tourne dans un thread : Tk n'y est pas utilisable (ni `after`,
+        ni création de fenêtre). On dépose le rapport dans une file que le thread
+        principal draine ; si on est déjà dans la boucle d'événements, on affiche
+        directement.
+        """
+        if threading.current_thread() is threading.main_thread():
+            self._show_crash(report)
+            return
+        self._crash_queue.put(report)
+
+    def _show_crash(self, report):
+        """Affiche le rapport de crash (thread principal uniquement)."""
+        try:
+            self.deiconify()
+            self.lift()
+        except Exception:  # noqa: BLE001 - fenêtre déjà détruite
+            pass
+        try:
+            show_crash_dialog(self, report)
+        except Exception as e:  # noqa: BLE001 - le rapport ne doit pas crasher le lanceur
+            print(f"Impossible d'afficher le rapport de crash: {e}")
+            print(report.format_text())
+
+    def _poll_crash_queue(self):
+        """Draine la file des crashs depuis la boucle d'événements Tk."""
+        try:
+            while True:
+                report = self._crash_queue.get_nowait()
+                self._show_crash(report)
+        except queue.Empty:
+            pass
+        try:
+            self._crash_poller = self.after(200, self._poll_crash_queue)
+        except tk.TclError:  # fenêtre détruite
+            self._crash_poller = None
+
+    def _start_crash_poller(self):
+        """Démarre le minuteur de drainage (appelé une fois l'UI prête)."""
+        if self._crash_poller is None:
+            self._crash_poller = self.after(200, self._poll_crash_queue)
 
     def _hide_progressbar(self):
         self.progressbar.place_forget()
