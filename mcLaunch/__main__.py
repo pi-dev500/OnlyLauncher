@@ -10,6 +10,7 @@ from portablemc.fabric import FabricVersion
 from portablemc.optifine import OptifineVersion, get_compatible_versions as of_version_dict, \
     get_offline_versions as of_offline_dict, OptifinePatchEvent, OptifineStartInstallEvent
 import json
+import logging
 #import sys
 import queue
 import threading
@@ -18,7 +19,7 @@ import uuid
 from pathlib import Path
 #from tkinter import *
 from tkinter.ttk import *
-from tkinter import ttk, Frame, Canvas, Tk, Button, Misc
+from tkinter import ttk, Frame, Canvas, Tk, Button, Misc, messagebox
 from tkinter import font
 
 from bs4 import BeautifulSoup
@@ -669,6 +670,39 @@ class ProfileEdit(ttk.Frame):
             return self.command(_CancelEdit)
         self.destroy()
 
+#: Nom du logger applicatif (voir :func:`configure_logging`).
+LOGGER_NAME = "onlylauncher"
+
+
+def log_file_path():
+    """Chemin du journal du lanceur, dans le cache utilisateur."""
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "onlylauncher", "onlylauncher.log")
+
+
+def configure_logging(path=None):
+    """Envoie le journal du lanceur dans un fichier.
+
+    Indispensable dans le binaire fenêtré : ``sys.stdout`` y vaut ``None``, donc
+    un ``print`` ne laisse aucune trace. Le fichier est le seul moyen de savoir
+    pourquoi un lancement a échoué.
+
+    :param path: chemin du journal, ``log_file_path()`` par défaut.
+    :return: le chemin réellement utilisé.
+    """
+    path = Path(path) if path is not None else Path(log_file_path())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    logger = logging.getLogger(LOGGER_NAME)
+    logger.setLevel(logging.INFO)
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(handler)
+    return path
+
+
 class Myapp(Tk):
     active_start_thread=None
     progress=0
@@ -1195,8 +1229,40 @@ class Myapp(Tk):
             return
         if not self.select_profile(selection):
             self.message("Error","Impossible de trouver le profile spécifié. Quelque chose s'est mal passé dans le lanceur.")
-    def message(self,msgt,content):
-        print(f"{msgt}: {content}")
+    def message(self, msgt, content):
+        """Signale un message à l'utilisateur.
+
+        Dans le binaire PyInstaller fenêtré, ``sys.stdout`` vaut ``None`` : un
+        simple ``print`` ne montre rien et l'échec d'un lancement passait
+        inaperçu. On journalise donc sur disque et on affiche une boîte de
+        dialogue depuis le thread principal (Tk n'est pas thread-safe).
+        """
+        text = f"{msgt}: {content}"
+        is_error = "erreur" in msgt.lower() or "error" in msgt.lower()
+        logger = logging.getLogger(LOGGER_NAME)
+        if is_error:
+            logger.error(text)
+        else:
+            logger.info(text)
+
+        def show():
+            try:
+                if is_error:
+                    messagebox.showerror(msgt, content)
+                else:
+                    messagebox.showinfo(msgt, content)
+            except tk.TclError:
+                # Pas d'affichage (session sans serveur X, fenêtre détruite) :
+                # le journal reste la trace de l'erreur.
+                pass
+
+        if threading.current_thread() is threading.main_thread():
+            show()
+            return
+        try:
+            self.after(0, show)
+        except Exception:  # noqa: BLE001 - fenêtre déjà détruite
+            pass
     def create_new_profile(self):
         self.profile_e.pack(fill="both")
         self.addprofile_b.pack_forget()
@@ -1417,6 +1483,10 @@ class Myapp(Tk):
         with open(os.path.join(mc_directory,"mcLaunch_profiles.json"),"w") as cf:
             json.dump(self.launcher_conf,cf)
 def main():
+    try:
+        configure_logging()
+    except OSError as e:  # noqa: BLE001 - le lanceur doit démarrer quand même
+        print(f"Journal indisponible: {e}")
     app = Myapp()
     try:
         app.mainloop()
