@@ -19,6 +19,8 @@ seul ; le branchement se fait dans ``__main__`` via :func:`run_game`.
 
 from __future__ import annotations
 
+import os
+import sys
 import tkinter as tk
 from collections.abc import Iterable
 from contextlib import suppress
@@ -182,6 +184,44 @@ class _LoggingStreamRunnerBase:
     # processus. Le définir ici le masquerait (MRO) et le jeu ne démarrerait pas.
 
 
+def game_environment() -> dict:
+    """Environnement du jeu, débarrassé des bibliothèques du lanceur empaqueté.
+
+    En AppImage (et dans un binaire PyInstaller ``onedir``), ``LD_LIBRARY_PATH``
+    pointe sur les bibliothèques embarquées : Qt, libX11, libgbm, libvulkan...
+    portablemc lance le jeu par ``Popen(args, cwd=...)`` sans ``env``, donc Java
+    hérite de ce chemin et charge ces copies au lieu de celles du système. C'est
+    ce qui fait échouer l'initialisation OpenGL du jeu
+    (``GLX: Failed to find a suitable GLXFBConfig``) alors que ``glxinfo``
+    fonctionne parfaitement. On retire les entrées internes au bundle pour que le
+    jeu démarre dans l'environnement de l'utilisateur, comme depuis un terminal.
+    """
+    env = dict(os.environ)
+    roots = []
+    for candidate in (getattr(sys, "_MEIPASS", None),
+                      os.environ.get("APPDIR"),
+                      os.environ.get("APPIMAGE")):
+        if candidate:
+            roots.append(os.path.realpath(candidate))
+    if not roots:
+        return env
+
+    def inside(path: str) -> bool:
+        real = os.path.realpath(path)
+        return any(real == root or real.startswith(root + os.sep) for root in roots)
+
+    for name in ("LD_LIBRARY_PATH", "PATH"):
+        value = env.get(name)
+        if not value:
+            continue
+        kept = [part for part in value.split(os.pathsep) if part and not inside(part)]
+        if kept:
+            env[name] = os.pathsep.join(kept)
+        else:
+            env.pop(name, None)
+    return env
+
+
 def _make_runner_class():
     """Construit le runner final, en héritant de ``StreamRunner`` si possible."""
     try:
@@ -196,6 +236,27 @@ def _make_runner_class():
         parse les logs log4j XML et rappelle ``self.process_stream_event``, donc
         nos erreurs sont bien collectées. Le redéfinir perdrait ce parsing.
         """
+
+        def process_create(self, args, work_dir):
+            """Lance le jeu dans un environnement assaini (voir `game_environment`).
+
+            ``StreamRunner.process_create`` appelle ``Popen(args, cwd=work_dir)``
+            sans ``env`` : le jeu héritait donc du ``LD_LIBRARY_PATH`` du bundle,
+            ce qui cassait OpenGL. On reprend son comportement (sortie redirigée
+            pour l'analyse des logs) en imposant l'environnement assaini.
+            """
+            from subprocess import PIPE, STDOUT, Popen
+            return Popen(
+                args,
+                cwd=work_dir,
+                stdout=PIPE,
+                stderr=STDOUT,
+                bufsize=1,
+                universal_newlines=True,
+                encoding="utf-8",
+                errors="replace",
+                env=game_environment(),
+            )
 
         def process_wait(self, process) -> None:
             """Attend la fin du jeu via portablemc puis retient son code de sortie."""
